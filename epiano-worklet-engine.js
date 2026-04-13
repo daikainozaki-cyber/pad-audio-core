@@ -42,7 +42,14 @@ function epianoWorkletInit(ctx, masterDest) {
   if (_epw_initialized) return Promise.resolve();
   if (_epw_initPromise) return _epw_initPromise;  // in-flight init — return existing promise
 
-  var processorUrl = 'epiano-worklet-processor.js?v=' + (window.APP_VERSION || Date.now());
+  // Submodule-aware path: this engine lives under audio-core/, and
+  // AudioWorklet.addModule resolves relative to document.baseURL (the
+  // host page), so we need the audio-core/ prefix here. When audio-core
+  // is later consumed outside a submodule (future standalone web audio
+  // app, JUCE WebView plugin), the host app can set window.AUDIO_CORE_BASE
+  // to override.
+  var basePath = (typeof window !== 'undefined' && window.AUDIO_CORE_BASE) || 'audio-core/';
+  var processorUrl = basePath + 'epiano-worklet-processor.js?v=' + (window.APP_VERSION || Date.now());
   _epw_initPromise = ctx.audioWorklet.addModule(processorUrl).then(function() {
     // Create worklet node (mono output: all DSP inside worklet)
     // V4B, poweramp, cabinet now run sample-by-sample in the worklet.
