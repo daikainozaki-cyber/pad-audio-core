@@ -14,29 +14,31 @@
 // ========================================
 
 function _saveEpMixer() {
-  try {
-    localStorage.setItem('64pad-ep-mixer-v2', JSON.stringify({
-      pickupSymmetry: EpState.pickupSymmetry,
-      springReverbMix: EpState.springReverbMix,
-      springDwell: EpState.springDwell,
-      springFeedbackScale: EpState.springFeedbackScale,
-      springStereoEnabled: EpState.springStereoEnabled,
-      attackNoise: EpState.attackNoise,
-    }));
-  } catch(_) {}
+  // Phase 3.0.d: localStorage I/O delegated to audioCoreConfig.persistence.saveEpMixer
+  var p = (typeof window !== 'undefined' && window.audioCoreConfig)
+    ? window.audioCoreConfig.persistence : null;
+  if (!p || !p.saveEpMixer) return;
+  p.saveEpMixer({
+    pickupSymmetry: EpState.pickupSymmetry,
+    springReverbMix: EpState.springReverbMix,
+    springDwell: EpState.springDwell,
+    springFeedbackScale: EpState.springFeedbackScale,
+    springStereoEnabled: EpState.springStereoEnabled,
+    attackNoise: EpState.attackNoise,
+  });
 }
 
 function _loadEpMixer() {
-  // ?reset=ep in URL → clear ALL sound localStorage and use HTML defaults
-  if (location.search.indexOf('reset=ep') >= 0) {
-    localStorage.removeItem('64pad-ep-mixer-v2');
-    localStorage.removeItem('64pad-sound');
-    return;
-  }
+  var p = (typeof window !== 'undefined' && window.audioCoreConfig)
+    ? window.audioCoreConfig.persistence : null;
+  if (!p) return;
+  // Phase 3.0.d: ?reset=ep URL detection delegated to host (parseUrlOverrides
+  // returns {resetEp: true} after clearing localStorage as side effect).
+  var overrides = p.parseUrlOverrides ? p.parseUrlOverrides() : {};
+  if (overrides && overrides.resetEp) return;
   try {
-    var raw = localStorage.getItem('64pad-ep-mixer-v2');
-    if (!raw) return;
-    var s = JSON.parse(raw);
+    var s = p.loadEpMixer ? p.loadEpMixer() : null;
+    if (!s) return;
     // pickupSymmetry: always use HTML default (physics-calibrated).
     // Old localStorage may have stale values from before PU model changes.
     ['springReverbMix','springDwell','springFeedbackScale','springStereoEnabled','attackNoise'].forEach(function(key) {
@@ -50,7 +52,7 @@ function _loadEpMixer() {
     // Clear stale pickupSymmetry from storage so it doesn't persist
     if (s.pickupSymmetry !== undefined) {
       delete s.pickupSymmetry;
-      localStorage.setItem('64pad-ep-mixer-v2', JSON.stringify(s));
+      if (p.saveEpMixer) p.saveEpMixer(s);
     }
     // Phase 3.0.c2: sync sliders + labels via audioCoreConfig.mixer bridge.
     // 既存挙動温存（raw 値を slider に書込、.toFixed(2) ラベル）。
@@ -93,24 +95,30 @@ function saveSoundSettings() {
     s.autoFilterType = autoFilterType;
     s.autoFilterPoles = autoFilterPoles;
     s.soundMuted = _soundMuted;
-    localStorage.setItem('64pad-sound', JSON.stringify(s));
+    // Phase 3.0.d: localStorage I/O delegated to bridge
+    var p = (typeof window !== 'undefined' && window.audioCoreConfig)
+      ? window.audioCoreConfig.persistence : null;
+    if (p && p.saveSound) p.saveSound(s);
   } catch(_) {}
 }
 
 function loadSoundSettings() {
   try {
-    const raw = localStorage.getItem('64pad-sound');
-    if (!raw) { return; }
-    const s = JSON.parse(raw);
+    // Phase 3.0.d: localStorage I/O delegated to bridge
+    var p = (typeof window !== 'undefined' && window.audioCoreConfig)
+      ? window.audioCoreConfig.persistence : null;
+    if (!p || !p.loadSound) return;
+    const s = p.loadSound();
+    if (!s) return;
     // Migrate removed Spring EXP preset → Rhodes DI
     if (s.preset === 'Rhodes DI Spring EXP') s.preset = 'Rhodes DI';
     if (s.engine && ENGINES[s.engine]) {
       var wasMuted = _soundMuted;
       setEngine(s.engine);
       if (s.preset && AudioState.engine.presets[s.preset]) setPreset(s.preset);
-      // Sync dropdown to combined value
-      var sel = document.getElementById('organ-preset');
-      if (sel) sel.value = AudioState.engineKey + ':' + AudioState.presetKey;
+      // Phase 3.0.c3 + d: organ-preset sync via presetDropdown bridge
+      var pd = window.audioCoreConfig ? window.audioCoreConfig.presetDropdown : null;
+      if (pd && pd.sync) pd.sync(AudioState.engineKey + ':' + AudioState.presetKey);
       // Restore muted state from saved settings (default: unmuted)
       _soundMuted = s.soundMuted !== undefined ? s.soundMuted : false;
       _updateMuteBtn();
