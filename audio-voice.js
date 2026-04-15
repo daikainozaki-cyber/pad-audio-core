@@ -60,6 +60,11 @@ function _updateMuteBtn() {
 function toggleSoundMute() {
   _soundMuted = !_soundMuted;
   _updateMuteBtn();
+  // 2026-04-15 fix: also apply to audio output (existing voices keep playing
+  // otherwise; noteOn _soundMuted guard only blocks new triggers).
+  var b = (typeof window !== 'undefined' && window.audioCoreConfig)
+    ? window.audioCoreConfig.muteUI : null;
+  if (b && b.applyMute) b.applyMute(_soundMuted);
   saveSoundSettings();
 }
 
