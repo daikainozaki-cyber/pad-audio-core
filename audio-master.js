@@ -6,6 +6,33 @@
 // audio.js so that audioCtx / masterGain / tremoloNode / masterBus are
 // available for the effect nodes declared there.
 // ========================================
+
+// === audioCoreConfig schemaVersion gate (Plan A 2026-04-15, Codex BLOCKER 3) ===
+// Validate before AudioContext creation. If host has not set a compatible
+// schemaVersion, throw to prevent half-initialized state. See INTERFACE.md.
+function validateAudioCoreConfig() {
+  var REQUIRED_SCHEMA_MAJOR = 1;
+  var config = window.audioCoreConfig;
+  if (!config) {
+    throw new Error('[audio-core] window.audioCoreConfig not set before audio-core script load. See audio-core/INTERFACE.md.');
+  }
+  var v = config.schemaVersion;
+  if (v === undefined || v === null) {
+    throw new Error('[audio-core] audioCoreConfig.schemaVersion is required. See audio-core/INTERFACE.md.');
+  }
+  if (typeof v !== 'number' || Number.isNaN(v)) {
+    throw new Error('[audio-core] audioCoreConfig.schemaVersion must be a finite number, got ' + typeof v + ' (' + v + ').');
+  }
+  var major = Math.floor(v);
+  if (major !== REQUIRED_SCHEMA_MAJOR) {
+    throw new Error(
+      '[audio-core] schemaVersion major mismatch: host=' + major + ', required=' + REQUIRED_SCHEMA_MAJOR + '. Update host-adapter or audio-core submodule. See audio-core/CHANGELOG.md.'
+    );
+  }
+  // minor mismatch: warn only (future-extensible if REQUIRED_SCHEMA_MINOR introduced)
+}
+validateAudioCoreConfig();
+
 let _soundMuted = false; // Sound ON by default — first pad tap plays immediately
 // AudioWorklet e-piano is default. ?node=1 falls back to Web Audio node version.
 const _useEpianoWorklet = new URLSearchParams(window.location.search).get('node') !== '1';
