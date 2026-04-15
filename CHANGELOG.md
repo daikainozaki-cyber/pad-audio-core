@@ -45,7 +45,7 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 ### BREAKING
 - `audioCoreConfig.schemaVersion` を **必須化**。`audio-master.js` 起動時に検証。
   - missing / NaN / non-number / major mismatch → **throw**
-  - minor mismatch → console.warn のみ
+  - minor mismatch: 現時点は throw なし（minor 機能は将来 `REQUIRED_SCHEMA_MINOR` 導入時に warn、TODO 参照）
 - 全 consumer は `audioCoreConfig.schemaVersion: 1` を設定すること。
   - 64PE: `host-adapter.js` で per-key defensive merge（既存 mergeDefaults pattern と同思想）
   - Keys: `app.js` の object literal に直接記述
@@ -78,6 +78,7 @@ Codex 監査（2026-04-15、reports/20260415-171910-design.md）BLOCKER 3:「aud
 - MRC: 旧 pointer（C 固定モード未対応）、bump 判断は plan v5 §Operational §3 参照
 - Pad Sensei Keys: 最新を参照
 
-### 今後の TODO（schemaVersion 等）
-- `audioCoreConfig.schemaVersion` field 未実装。Phase 3.0 完了後に追加検討
+### 今後の TODO
+- ~~`audioCoreConfig.schemaVersion` field 未実装~~ → 2026-04-15 実装済（上記 Plan A entry 参照）
 - cross-consumer CI（audio-core push → 64PE/Keys/MRC の test trigger）未実装
+- `REQUIRED_SCHEMA_MINOR` 導入（minor mismatch → console.warn）— 将来必要になったら追加

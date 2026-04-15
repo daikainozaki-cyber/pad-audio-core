@@ -31,7 +31,7 @@ window.audioCoreConfig = {
 | `undefined` / `null` | missing | **throw**（"is required"） |
 | string / boolean / NaN | non-number | **throw**（"must be a finite number"） |
 | `Math.floor(v) !== REQUIRED_MAJOR` | major mismatch | **throw**（"major mismatch"） |
-| minor 違い | minor mismatch | console.warn のみ（動作継続） |
+| minor 違い | minor mismatch | 現時点は throw なし（minor 機能は将来 `REQUIRED_SCHEMA_MINOR` 導入時に warn、CHANGELOG TODO 参照） |
 
 **検証実装**: `audio-master.js` の冒頭で `validateAudioCoreConfig()` を呼ぶ（AudioContext 作成前）。
 
