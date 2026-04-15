@@ -31,11 +31,13 @@ window.audioCoreConfig = {
 | `undefined` / `null` | missing | **throw**（"is required"） |
 | string / boolean / NaN | non-number | **throw**（"must be a finite number"） |
 | `Math.floor(v) !== REQUIRED_MAJOR` | major mismatch | **throw**（"major mismatch"） |
-| minor 違い | minor mismatch | 現時点は throw なし（minor 機能は将来 `REQUIRED_SCHEMA_MINOR` 導入時に warn、CHANGELOG TODO 参照） |
+| minor 違い | minor mismatch | `console.warn`（機能差異を通知、動作継続） |
 
 **検証実装**: `audio-master.js` の冒頭で `validateAudioCoreConfig()` を呼ぶ（AudioContext 作成前）。
 
 **現在の schema バージョン**: `1.0`（Plan A baseline、2026-04-15）
+
+**minor の range 制限**: 数値表現 (`1.0`, `1.1`, ..., `1.9`) を仮定。minor ≥ 10 になったら representation を `"1.10"` 文字列 or `{major: 1, minor: 10}` object に変更する必要あり。Plan C (2026-04-16) での妥協事項。
 
 ---
 
@@ -63,7 +65,7 @@ window.audioCoreConfig = {
    - signature 変更 / sub-interface 追加削除 / required field 追加 → **major bump**
    - optional field 追加 / default 値変更 → **minor bump**
 2. INTERFACE.md の「現在の schema バージョン」を更新
-3. `audio-master.js` の `REQUIRED_SCHEMA_MAJOR`（major bump 時）を更新
+3. `audio-master.js` の `REQUIRED_SCHEMA_MAJOR`（major bump 時）/ `REQUIRED_SCHEMA_MINOR`（minor bump 時）を更新。現在値は v1.0 (major=1, minor=0)
 4. `CHANGELOG.md` に **BREAKING** または **Feature** entry 追記
 5. **major bump の場合は全 consumer の adapter を同 PR で更新**（64PE host-adapter.js / Keys app.js / 将来 Effects / Desktop sync-webui.sh 経由）
 

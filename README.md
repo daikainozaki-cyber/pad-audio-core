@@ -12,6 +12,14 @@ applications consume it as a git submodule (mounted at `audio-core/`) and
 load every file via `<script src="audio-core/...">` + AudioWorklet
 `addModule('audio-core/...')` calls.
 
+## Install git hooks（clone 直後に 1 回）
+
+```bash
+./tools/install-hooks.sh
+```
+
+`*.js` / `INTERFACE.md` 変更時に `CHANGELOG.md` entry 必須の pre-commit hook を入れる（Plan C 2026-04-16、Codex MINOR 1 吸収）。urgent な typo など bypass したい時は `SKIP_CHANGELOG=1 git commit ...`。
+
 ## Status (2026-04-14)
 
 **Phase 1.0 — proof of concept.** Only `spring-reverb-processor.js` has been

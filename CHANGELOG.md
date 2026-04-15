@@ -40,6 +40,22 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
+## [2026-04-16] {pending-sha} — schemaVersion minor warn + CHANGELOG-enforcing hook（Plan C）
+
+### Feature
+- `validateAudioCoreConfig()` に minor mismatch 検出を追加
+  - host `schemaVersion` の minor 部分が `REQUIRED_SCHEMA_MINOR` と違えば `console.warn`（throw せず動作継続）
+  - 例: host=`1.1`、required=`1.0` → warn だけ出て機能差異を通知
+- `tools/pre-commit.sh` + `tools/install-hooks.sh` 新規 — *.js / INTERFACE.md 変更時に CHANGELOG entry 必須を機械化
+  - Scope: `*.js` + `INTERFACE.md`（README.md / typo はノイズ源なので除外）
+  - Bypass: `SKIP_CHANGELOG=1 git commit ...`
+  - Install: `./tools/install-hooks.sh`（clone 直後に 1 回、各 clone で別途）
+
+### 動機
+Codex Plan A Final audit (reports/20260415-221118-design.md) CONFIRM 2 (minor mismatch warn 未実装) + MINOR 1 (CHANGELOG hook 未実装) の吸収。urinami 原則「構造で記憶を外化」に従い、contract の doc-only 管理から runtime + git hook の二重防御へ。
+
+---
+
 ## [2026-04-15] {pending-sha} — schemaVersion strict gate + INTERFACE.md（Plan A、Codex BLOCKER 3）
 
 ### BREAKING

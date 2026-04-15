@@ -12,6 +12,7 @@
 // schemaVersion, throw to prevent half-initialized state. See INTERFACE.md.
 function validateAudioCoreConfig() {
   var REQUIRED_SCHEMA_MAJOR = 1;
+  var REQUIRED_SCHEMA_MINOR = 0;  // Current audio-core schema v1.0 (2026-04-16 Plan C)
   var config = window.audioCoreConfig;
   if (!config) {
     throw new Error('[audio-core] window.audioCoreConfig not set before audio-core script load. See audio-core/INTERFACE.md.');
@@ -29,7 +30,17 @@ function validateAudioCoreConfig() {
       '[audio-core] schemaVersion major mismatch: host=' + major + ', required=' + REQUIRED_SCHEMA_MAJOR + '. Update host-adapter or audio-core submodule. See audio-core/CHANGELOG.md.'
     );
   }
-  // minor mismatch: warn only (future-extensible if REQUIRED_SCHEMA_MINOR introduced)
+  // Minor mismatch: warn only (functional but host may miss new features or
+  // audio-core has dropped an old optional feature). Single-digit minor assumption
+  // (1.0, 1.1, ..., 1.9). If minor ever reaches 10+, switch to string/object form.
+  var minor = Math.round((v - major) * 10) / 10;
+  if (minor !== REQUIRED_SCHEMA_MINOR) {
+    console.warn(
+      '[audio-core] schemaVersion minor mismatch: host=' + v +
+      ', required=' + REQUIRED_SCHEMA_MAJOR + '.' + REQUIRED_SCHEMA_MINOR +
+      '. Functional, but feature set may differ. See audio-core/CHANGELOG.md.'
+    );
+  }
 }
 validateAudioCoreConfig();
 
