@@ -75,9 +75,11 @@ function selectSound(combinedValue) {
   _applyPresetEpMixerDefaults();
   saveSoundSettings();
   _updateEpMixerVisibility();
-  // Sync TREM implementation (always Vactrol now, kept for consistency)
-  var trmSlider = document.getElementById('snd-tremolo');
-  if (trmSlider) trmSlider.dispatchEvent(new Event('input'));
+  // Phase 3.0.c2: tremolo redispatch via audioCoreConfig.mixer bridge.
+  // Sync TREM implementation (always Vactrol now, kept for consistency).
+  var b = (typeof window !== 'undefined' && window.audioCoreConfig)
+    ? window.audioCoreConfig.mixer : null;
+  if (b && b.redispatchTremolo) b.redispatchTremolo();
 }
 
 function setPreset(name) {
@@ -91,21 +93,18 @@ function setPreset(name) {
 }
 
 function _updateEpMixerVisibility() {
-  var sec = document.getElementById('ep-mixer-section');
-  if (!sec) return;
+  // Phase 3.0.c2: state computation stays in audio-core (uses AudioState +
+  // EP_AMP_PRESETS internal knowledge). DOM application delegated to
+  // audioCoreConfig.mixer.updateVisibility (host owns ep-*-section ids).
   var isEpiano = !!(AudioState.instrument && AudioState.instrument.epiano);
-  sec.style.display = isEpiano ? '' : 'none';
   var epPreset = isEpiano ? EP_AMP_PRESETS[AudioState.instrument.epiano] : null;
   var hasSpring = !!(epPreset && epPreset.useSpringReverb);
   var isSuitcase = !!(epPreset && epPreset.powerampType === 'GeTr');
-  // REVERB section: show when preset has spring reverb
-  var revSec = document.getElementById('ep-reverb-section');
-  if (revSec) revSec.style.display = hasSpring ? '' : 'none';
-  // BASS/TREBLE: show for Suitcase (Baxandall EQ)
-  var bassLabel = document.getElementById('ep-eq-bass-label');
-  var trebleLabel = document.getElementById('ep-eq-treble-label');
-  if (bassLabel) bassLabel.style.display = isSuitcase ? '' : 'none';
-  if (trebleLabel) trebleLabel.style.display = isSuitcase ? '' : 'none';
+  var b = (typeof window !== 'undefined' && window.audioCoreConfig)
+    ? window.audioCoreConfig.mixer : null;
+  if (b && b.updateVisibility) {
+    b.updateVisibility({ isEpiano: isEpiano, hasSpring: hasSpring, isSuitcase: isSuitcase });
+  }
 }
 
 function _applyPresetEpMixerDefaults() {
@@ -115,24 +114,26 @@ function _applyPresetEpMixerDefaults() {
   if (inst.epMixerDefaults.springDwell !== undefined) EpState.springDwell = inst.epMixerDefaults.springDwell;
   if (inst.epMixerDefaults.springFeedbackScale !== undefined) EpState.springFeedbackScale = inst.epMixerDefaults.springFeedbackScale;
   if (inst.epMixerDefaults.springStereoEnabled !== undefined) EpState.springStereoEnabled = inst.epMixerDefaults.springStereoEnabled;
-  var rev = document.getElementById('ep-rev');
-  var revVal = document.getElementById('ep-rev-val');
-  var revKnob = EpState.springReverbMix / 1.4 * 9 + 1; // internal → 1-10
-  if (rev) rev.value = revKnob;
-  if (revVal) revVal.textContent = revKnob.toFixed(1);
-  var dwell = document.getElementById('ep-dwell');
-  var dwellVal = document.getElementById('ep-dwell-val');
-  if (dwell) dwell.value = EpState.springDwell;
-  if (dwellVal) dwellVal.textContent = EpState.springDwell.toFixed(1);
-  var decay = document.getElementById('ep-decay');
-  var decayVal = document.getElementById('ep-decay-val');
-  var decayKnob = (EpState.springFeedbackScale - 0.3) / 0.69 * 9 + 1; // internal → 1-10
-  if (decay) decay.value = decayKnob;
-  if (decayVal) decayVal.textContent = decayKnob.toFixed(1);
-  var stereo = document.getElementById('ep-stereo');
-  var stereoVal = document.getElementById('ep-stereo-val');
-  if (stereo) stereo.checked = !!EpState.springStereoEnabled;
-  if (stereoVal) stereoVal.textContent = EpState.springStereoEnabled ? 'ON' : 'OFF';
+  // Phase 3.0.c2: knob scaling formulas computed here (internal → 1-10),
+  // DOM writes delegated to audioCoreConfig.mixer bridge.
+  var revKnob = EpState.springReverbMix / 1.4 * 9 + 1;
+  var decayKnob = (EpState.springFeedbackScale - 0.3) / 0.69 * 9 + 1;
+  var b = (typeof window !== 'undefined' && window.audioCoreConfig)
+    ? window.audioCoreConfig.mixer : null;
+  if (b) {
+    if (b.syncSliders) b.syncSliders({
+      'ep-rev': revKnob,
+      'ep-dwell': EpState.springDwell,
+      'ep-decay': decayKnob,
+      'ep-stereo': EpState.springStereoEnabled
+    });
+    if (b.syncValueLabels) b.syncValueLabels({
+      'ep-rev-val': revKnob.toFixed(1),
+      'ep-dwell-val': EpState.springDwell.toFixed(1),
+      'ep-decay-val': decayKnob.toFixed(1),
+      'ep-stereo-val': EpState.springStereoEnabled ? 'ON' : 'OFF'
+    });
+  }
   if (_useEpianoWorklet && typeof epianoWorkletUpdateParams === 'function') {
     epianoWorkletUpdateParams({
       springReverbMix: EpState.springReverbMix,

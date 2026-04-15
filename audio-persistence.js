@@ -52,15 +52,27 @@ function _loadEpMixer() {
       delete s.pickupSymmetry;
       localStorage.setItem('64pad-ep-mixer-v2', JSON.stringify(s));
     }
-    // Sync sliders
-    var map = {pickupSymmetry:'ep-pu-sym', springReverbMix:'ep-rev', springDwell:'ep-dwell', attackNoise:'ep-mechanical'};
-    var valMap = {pickupSymmetry:'ep-pu-sym-val', springReverbMix:'ep-rev-val', springDwell:'ep-dwell-val', attackNoise:'ep-mechanical-val'};
-    Object.keys(map).forEach(function(key) {
-      var sl = document.getElementById(map[key]);
-      var vl = document.getElementById(valMap[key]);
-      if (sl) sl.value = EpState[key];
-      if (vl) vl.textContent = EpState[key].toFixed(2);
-    });
+    // Phase 3.0.c2: sync sliders + labels via audioCoreConfig.mixer bridge.
+    // 既存挙動温存（raw 値を slider に書込、.toFixed(2) ラベル）。
+    var b = (typeof window !== 'undefined' && window.audioCoreConfig)
+      ? window.audioCoreConfig.mixer : null;
+    if (b) {
+      var values = {};
+      var labels = {};
+      [
+        ['pickupSymmetry', 'ep-pu-sym'],
+        ['springReverbMix', 'ep-rev'],
+        ['springDwell', 'ep-dwell'],
+        ['attackNoise', 'ep-mechanical']
+      ].forEach(function(pair) {
+        var key = pair[0], id = pair[1];
+        if (EpState[key] === undefined) return;
+        values[id] = EpState[key];
+        labels[id + '-val'] = EpState[key].toFixed(2);
+      });
+      if (b.syncSliders) b.syncSliders(values);
+      if (b.syncValueLabels) b.syncValueLabels(labels);
+    }
   } catch(_) {}
 }
 
