@@ -54,24 +54,42 @@ function _loadEpMixer() {
       delete s.pickupSymmetry;
       if (p.saveEpMixer) p.saveEpMixer(s);
     }
-    // Phase 3.0.c2: sync sliders + labels via audioCoreConfig.mixer bridge.
-    // 既存挙動温存（raw 値を slider に書込、.toFixed(2) ラベル）。
+    // Phase 3.0.c2 + 2026-04-15 fix: 6 slider full sync via mixer bridge.
+    // ep-rev (1-10 slider) = springReverbMix (raw 0-1.4) / 1.4 * 9 + 1
+    // ep-decay (1-10 slider) = (springFeedbackScale (raw 0.3-0.99) - 0.3) / 0.69 * 9 + 1
+    // ep-stereo (checkbox) = springStereoEnabled (bool)
+    // ep-pu-sym / ep-mechanical / ep-dwell: raw value matches slider range directly
     var b = (typeof window !== 'undefined' && window.audioCoreConfig)
       ? window.audioCoreConfig.mixer : null;
     if (b) {
       var values = {};
       var labels = {};
-      [
-        ['pickupSymmetry', 'ep-pu-sym'],
-        ['springReverbMix', 'ep-rev'],
-        ['springDwell', 'ep-dwell'],
-        ['attackNoise', 'ep-mechanical']
-      ].forEach(function(pair) {
-        var key = pair[0], id = pair[1];
-        if (EpState[key] === undefined) return;
-        values[id] = EpState[key];
-        labels[id + '-val'] = EpState[key].toFixed(2);
-      });
+      if (EpState.pickupSymmetry !== undefined) {
+        values['ep-pu-sym'] = EpState.pickupSymmetry;
+        labels['ep-pu-sym-val'] = EpState.pickupSymmetry.toFixed(2);
+      }
+      if (EpState.springReverbMix !== undefined) {
+        var revKnob = EpState.springReverbMix / 1.4 * 9 + 1;
+        values['ep-rev'] = revKnob;
+        labels['ep-rev-val'] = revKnob.toFixed(1);
+      }
+      if (EpState.springDwell !== undefined) {
+        values['ep-dwell'] = EpState.springDwell;
+        labels['ep-dwell-val'] = EpState.springDwell.toFixed(1);
+      }
+      if (EpState.springFeedbackScale !== undefined) {
+        var decayKnob = (EpState.springFeedbackScale - 0.3) / 0.69 * 9 + 1;
+        values['ep-decay'] = decayKnob;
+        labels['ep-decay-val'] = decayKnob.toFixed(1);
+      }
+      if (EpState.springStereoEnabled !== undefined) {
+        values['ep-stereo'] = EpState.springStereoEnabled;
+        labels['ep-stereo-val'] = EpState.springStereoEnabled ? 'ON' : 'OFF';
+      }
+      if (EpState.attackNoise !== undefined) {
+        values['ep-mechanical'] = EpState.attackNoise;
+        labels['ep-mechanical-val'] = EpState.attackNoise.toFixed(2);
+      }
       if (b.syncSliders) b.syncSliders(values);
       if (b.syncValueLabels) b.syncValueLabels(labels);
     }
