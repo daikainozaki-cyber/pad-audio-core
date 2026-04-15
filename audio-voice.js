@@ -201,10 +201,29 @@ function drawVelocityCurve() {
 // Global held-note tracking (mouse / touch)
 let _heldMidi = null;
 const _heldTouches = new Map(); // touch.identifier → midi
+
+// Phase 3.0.b: linkMode / midiActiveNotes / scheduleMidiUpdate への直接参照を
+// host-adapter.js の audioCoreConfig.midiBridge 経由に変更。
+// host が config を提供しない場合は no-op（standalone 等）。
+function _midiBridgeRelease(midi) {
+  var b = (typeof window !== 'undefined' && window.audioCoreConfig)
+    ? window.audioCoreConfig.midiBridge : null;
+  if (b && b.isLinkMode && b.isLinkMode()) {
+    if (b.onNoteReleased) b.onNoteReleased(midi);
+  }
+}
+function _midiBridgeReleaseAll() {
+  var b = (typeof window !== 'undefined' && window.audioCoreConfig)
+    ? window.audioCoreConfig.midiBridge : null;
+  if (b && b.isLinkMode && b.isLinkMode()) {
+    if (b.onAllReleased) b.onAllReleased();
+  }
+}
+
 document.addEventListener('mouseup', () => {
   if (_heldMidi !== null) {
     noteOff(_heldMidi);
-    if (linkMode) { midiActiveNotes.delete(_heldMidi); scheduleMidiUpdate(); }
+    _midiBridgeRelease(_heldMidi);
     _heldMidi = null;
   }
 });
@@ -213,7 +232,7 @@ document.addEventListener('touchend', (e) => {
     const midi = _heldTouches.get(t.identifier);
     if (midi !== undefined) {
       noteOff(midi); _heldTouches.delete(t.identifier);
-      if (linkMode) { midiActiveNotes.delete(midi); scheduleMidiUpdate(); }
+      _midiBridgeRelease(midi);
     }
   }
 });
@@ -222,7 +241,7 @@ document.addEventListener('touchcancel', (e) => {
     const midi = _heldTouches.get(t.identifier);
     if (midi !== undefined) {
       noteOff(midi); _heldTouches.delete(t.identifier);
-      if (linkMode) { midiActiveNotes.delete(midi); scheduleMidiUpdate(); }
+      _midiBridgeRelease(midi);
     }
   }
 });
@@ -231,7 +250,7 @@ window.addEventListener('blur', () => {
   if (_heldMidi !== null) { noteOff(_heldMidi); _heldMidi = null; }
   _heldTouches.forEach((midi) => noteOff(midi));
   _heldTouches.clear();
-  if (linkMode) { midiActiveNotes.clear(); scheduleMidiUpdate(); }
+  _midiBridgeReleaseAll();
 });
 
 function playMidiNotes(midiNotes) {
