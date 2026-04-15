@@ -742,7 +742,10 @@ function computeModeFrequencies(midiNote, velocity) {
 
 function _loadRealCabinetIR(ctx) {
   if (_epRealIRLoaded) return;
-  fetch('twin-cab-ir.wav')
+  // Phase 3.0.f: asset relocated to audio-core/assets/. Use AUDIO_CORE_BASE
+  // hook so embedded hosts (Desktop / standalone) can override the base path.
+  var basePath = (typeof window !== 'undefined' && window.AUDIO_CORE_BASE) || 'audio-core/';
+  fetch(basePath + 'assets/twin-cab-ir.wav')
     .then(function(r) { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
     .then(function(buf) { return ctx.decodeAudioData(buf); })
     .then(function(decoded) {
@@ -767,7 +770,9 @@ function _loadSpringReverbWorklet(ctx) {
   if (!ctx.audioWorklet) return; // Safari <14.1 fallback to ConvolverNode
   if (_epSpringReverbWorklet) return;
 
-  ctx.audioWorklet.addModule('audio-core/spring-reverb-processor.js')
+  // Phase 3.0.f: AUDIO_CORE_BASE hook for embedded hosts
+  var _scoreBase = (typeof window !== 'undefined' && window.AUDIO_CORE_BASE) || 'audio-core/';
+  ctx.audioWorklet.addModule(_scoreBase + 'spring-reverb-processor.js')
     .then(function() {
       var workletNode = new AudioWorkletNode(ctx, 'spring-reverb-processor', {
         numberOfInputs: 1,

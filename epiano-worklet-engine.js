@@ -84,7 +84,10 @@ function epianoWorkletInit(ctx, masterDest) {
 
 function _epwLoadFDTDTables() {
   if (!_epw_node) return;
-  var basePath = 'data/fdtd/';
+  // Phase 3.0.f: FDTD assets relocated to audio-core/assets/fdtd/.
+  // Use AUDIO_CORE_BASE for embedded host override capability.
+  var _coreBase = (typeof window !== 'undefined' && window.AUDIO_CORE_BASE) || 'audio-core/';
+  var basePath = _coreBase + 'assets/fdtd/';
   Promise.all([
     fetch(basePath + 'attack_tables.bin?v=' + (window.APP_VERSION || Date.now())).then(function(r) {
       if (!r.ok) throw new Error('FDTD tables not found');

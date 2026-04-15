@@ -1,0 +1,14 @@
+{
+  "sample_rate": 44100,
+  "attack_samples": 8820,
+  "crossfade_start": 6615,
+  "vel_layers": [
+    0.3,
+    0.9
+  ],
+  "n_keys": 88,
+  "midi_start": 21,
+  "channels": 1,
+  "total_floats": 1552320,
+  "bytes": 6209280
+}
