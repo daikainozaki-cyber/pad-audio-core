@@ -46,17 +46,15 @@ function _createVoiceSaturation(velocity) {
 // --- Voice management ---
 const activeVoices = new Map(); // midi → { envelope }
 
-var _SVG_SOUND_OFF = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
-var _SVG_SOUND_ON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07"/><path d="M19.07 4.93a10 10 0 010 14.14"/></svg>';
+// Phase 3.0.c1: mute UI is host-owned. SVG icons + DOM updates moved to
+// host-adapter.js. _updateMuteBtn becomes a thin delegator. If host
+// doesn't provide muteUI bridge (standalone), no-op silently.
 function _updateMuteBtn() {
-  var btn = document.getElementById('sound-mute-btn');
-  if (btn) {
-    btn.innerHTML = _soundMuted ? _SVG_SOUND_OFF : _SVG_SOUND_ON;
-    btn.style.opacity = _soundMuted ? '0.5' : '1';
-  }
-  // Dim preset selector when muted
-  var sel = document.getElementById('organ-preset');
-  if (sel) sel.style.opacity = _soundMuted ? '0.4' : '';
+  var b = (typeof window !== 'undefined' && window.audioCoreConfig)
+    ? window.audioCoreConfig.muteUI : null;
+  if (!b) return;
+  if (b.updateMuteBtn) b.updateMuteBtn(_soundMuted);
+  if (b.updatePresetOpacity) b.updatePresetOpacity(_soundMuted);
 }
 
 function toggleSoundMute() {
