@@ -40,7 +40,7 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
-## [2026-04-16] {pending-sha} — schemaVersion minor warn + CHANGELOG-enforcing hook（Plan C）
+## [2026-04-16] 3acbd6c — schemaVersion minor warn + CHANGELOG-enforcing hook（Plan C）
 
 ### Feature
 - `validateAudioCoreConfig()` に minor mismatch 検出を追加
@@ -56,7 +56,7 @@ Codex Plan A Final audit (reports/20260415-221118-design.md) CONFIRM 2 (minor mi
 
 ---
 
-## [2026-04-15] {pending-sha} — schemaVersion strict gate + INTERFACE.md（Plan A、Codex BLOCKER 3）
+## [2026-04-15] 0fb3e7b — schemaVersion strict gate + INTERFACE.md（Plan A、Codex BLOCKER 3）
 
 ### BREAKING
 - `audioCoreConfig.schemaVersion` を **必須化**。`audio-master.js` 起動時に検証。
