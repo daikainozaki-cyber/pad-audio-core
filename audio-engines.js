@@ -86,8 +86,10 @@ function setPreset(name) {
   if (!AudioState.engine.presets[name]) return;
   AudioState.presetKey = name;
   AudioState.instrument = AudioState.engine.presets[name];
-  const sel = document.getElementById('organ-preset');
-  if (sel) sel.value = AudioState.engineKey + ':' + name;
+  // Phase 3.0.c3: organ-preset.value sync via audioCoreConfig.presetDropdown.sync
+  var b = (typeof window !== 'undefined' && window.audioCoreConfig)
+    ? window.audioCoreConfig.presetDropdown : null;
+  if (b && b.sync) b.sync(AudioState.engineKey + ':' + name);
   saveSoundSettings();
   _updateEpMixerVisibility();
 }

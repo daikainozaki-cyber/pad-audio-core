@@ -153,33 +153,38 @@ function loadSoundSettings() {
 }
 
 function renderSoundControls() {
-  const sel = document.getElementById('organ-preset');
-  if (!sel) return;
-  // HPS gate: Suitcase amp presets are members-only
-  var hpsUnlocked = new URLSearchParams(window.location.search).has('hps');
-  sel.innerHTML = '';
+  // Phase 3.0.c3: audio-core enumerates ENGINES + builds entries[] with
+  // useCabinet meta. host's audioCoreConfig.presetDropdown bridges:
+  //   - filter(entry) — HPS gate decision (host-owned)
+  //   - render(entries) — DOM construction (host-owned)
+  //   - sync(value) — organ-preset.value sync
+  var b = (typeof window !== 'undefined' && window.audioCoreConfig)
+    ? window.audioCoreConfig.presetDropdown : null;
+  if (!b) return;
+  var entries = [];
   Object.entries(ENGINES).forEach(function(entry) {
     var engineKey = entry[0], engine = entry[1];
     Object.entries(engine.presets).forEach(function(pe) {
       var presetKey = pe[0], presetData = pe[1];
-      // Skip amp presets (useCabinet=true) for non-HPS users
       var epPreset = EP_AMP_PRESETS[presetData.epiano];
-      if (epPreset && epPreset.useCabinet && !hpsUnlocked) return;
-      var opt = document.createElement('option');
-      opt.value = engineKey + ':' + presetKey;
-      opt.textContent = presetData.label;
-      sel.appendChild(opt);
+      var item = {
+        value: engineKey + ':' + presetKey,
+        label: presetData.label,
+        engineKey: engineKey,
+        presetKey: presetKey,
+        useCabinet: !!(epPreset && epPreset.useCabinet)
+      };
+      if (b.filter && !b.filter(item)) return;
+      entries.push(item);
     });
   });
-  // Fall back to a free preset if current selection was HPS-gated
+  if (b.render) b.render(entries);
+  // Fall back to a free preset if current selection was filtered out
   var currentValue = AudioState.engineKey + ':' + AudioState.presetKey;
-  var hasCurrent = Array.from(sel.options).some(function(o) { return o.value === currentValue; });
-  if (!hasCurrent && sel.options.length > 0) {
-    var firstKey = sel.options[0].value.split(':').slice(1).join(':');
-    AudioState.presetKey = firstKey;
-    AudioState.instrument = AudioState.engine.presets[firstKey];
+  var hasCurrent = entries.some(function(e) { return e.value === currentValue; });
+  if (!hasCurrent && entries.length > 0) {
+    AudioState.presetKey = entries[0].presetKey;
+    AudioState.instrument = AudioState.engine.presets[entries[0].presetKey];
   }
-  sel.value = AudioState.engineKey + ':' + AudioState.presetKey;
-  // Hide dropdown when only one preset exists
-  sel.style.display = sel.options.length <= 1 ? 'none' : '';
+  if (b.sync) b.sync(AudioState.engineKey + ':' + AudioState.presetKey);
 }
