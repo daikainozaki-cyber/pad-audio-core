@@ -1418,6 +1418,11 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.jaM = 0;          // Magnetization state (HAS MEMORY — this is the hysteresis)
     this.jaHprev = 0;      // Previous H for delta detection
     this.jaHscale = 0.5;   // Input→H scaling (very subtle — Suitcase transformer is small)
+    // Phase 4 (2026-04-23): wet/dry blend for gradual bypass->active transition
+    // jaWetMix=0: complete bypass (identical to target 2026-04-23 state)
+    // jaWetMix=1: full J-A (hysteresis + pre/de-emph)
+    // Voicing Lab UI から調整して split 歪みバグの再現と回避を耳検証する
+    this.jaWetMix = 0;
     // Pre/de-emphasis: boost lows before J-A, cut after → frequency-dependent saturation
     // Low shelf +6dB at 200Hz before J-A, -6dB after. Stable alternative to integrate/differentiate.
     this.jaPreEmphCoeff = biquadLowShelf(200, 6, fs);
@@ -1893,6 +1898,8 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     if (msg.gePreampDrive !== undefined)   this.gePreampDrive   = Math.max(0.1, +msg.gePreampDrive || 2.5);
     if (msg.gePreampGain !== undefined)    this.gePreampGain    = Math.max(0.01, +msg.gePreampGain || 1.5);
     if (msg.suitcasePreFxTrim !== undefined) this.suitcasePreFxTrim = Math.max(0.01, +msg.suitcasePreFxTrim || 0.42);
+    // Phase 4 J-A wet/dry blend (2026-04-23)
+    if (msg.jaWetMix !== undefined) this.jaWetMix = Math.max(0, Math.min(1, +msg.jaWetMix || 0));
     if (msg.springReverbMix !== undefined) {
       this.springReverbMix = msg.springReverbMix;
       this.reverbPot = msg.springReverbMix;
@@ -2958,14 +2965,20 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
           // Post-LUT real gain (unity-gain LUT × stage gain)
           ampSig *= this.gePreampGain;
 
-          // --- BYPASS: J-A interstage transformer ---
-          // Causes split distortion (clean+distorted heard separately).
-          // TODO: fix J-A pre-emphasis/de-emphasis implementation
-          // J-A bypass: no additional attenuation (0.32 pre-Ge handles level)
-          if (false) {
+          // --- J-A interstage transformer (Phase 4, 2026-04-23) ---
+          // 旧: `if (false)` で完全 bypass (split 歪み問題で封印)
+          // 新: wet/dry blend で gradual 制御、Voicing Lab UI の J-A MIX slider で
+          //     urinami さんが耳検証しながら徐々に有効化する。jaWetMix=0 で完全
+          //     bypass (target 2026-04-23 状態と一致)、1 で full J-A。
+          //
+          // 目的: Codex 外部監査 Q2 YES「低音特異の圧縮 (B∝1/f) は T1 J-A が本体」
+          // を段階的に検証。split 歪みバグ (clean + distorted 分離) が再現したら
+          // その jaWetMix 値で止めて原因特定する。
+          if (this.jaWetMix > 0.001) {
+            var dryForJA = ampSig;
             // 1. Pre-emphasis: boost lows before J-A
-            ampSig = biquadProcess(this.jaPreEmphCoeff, this.jaPreEmphState, ampSig);
-            var H = ampSig * this.jaHscale;
+            var preJA = biquadProcess(this.jaPreEmphCoeff, this.jaPreEmphState, ampSig);
+            var H = preJA * this.jaHscale;
             var He = H + this.jaAlpha * this.jaM;
             // Langevin function: L(x) = coth(x) - 1/x ≈ x/3 for small x
             var hea = He / this.jaA;
@@ -3002,9 +3015,11 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
             var mNorm = Math.abs(this.jaM) / this.jaMs;  // 0..1 saturation ratio
             this.couplingSmooth += this.couplingAlpha * (mNorm - this.couplingSmooth);
             // Output: B ∝ H + M, normalized
-            ampSig = (H + this.jaM) / (1 + this.jaMs) / this.jaHscale;
+            var wetJA = (H + this.jaM) / (1 + this.jaMs) / this.jaHscale;
             // 2. De-emphasis: cut lows back to restore balance
-            ampSig = biquadProcess(this.jaDeEmphCoeff, this.jaDeEmphState, ampSig);
+            wetJA = biquadProcess(this.jaDeEmphCoeff, this.jaDeEmphState, wetJA);
+            // Blend dry (target 状態) と wet (J-A 通過) を jaWetMix で合成
+            ampSig = dryForJA * (1 - this.jaWetMix) + wetJA * this.jaWetMix;
           }
 
           // --- Germanium Power Amp (Peterson 2×40W push-pull, coupled to transformer) ---

@@ -124,6 +124,7 @@ function _epwSendVoicingLabParams(params) {
   if (params && typeof params.gePreampDrive === 'number') msg.gePreampDrive = params.gePreampDrive;
   if (params && typeof params.gePreampGain === 'number') msg.gePreampGain = params.gePreampGain;
   if (params && typeof params.suitcasePreFxTrim === 'number') msg.suitcasePreFxTrim = params.suitcasePreFxTrim;
+  if (params && typeof params.jaWetMix === 'number') msg.jaWetMix = params.jaWetMix;
   _epw_node.port.postMessage(msg);
 }
 // Global exposure for Voicing Lab UI (keys 専用、Plugin 切り出し時は外す)
@@ -195,6 +196,7 @@ function _epwSendParams() {
     if (typeof vl.gePreampDrive === 'number') params.gePreampDrive = vl.gePreampDrive;
     if (typeof vl.gePreampGain === 'number') params.gePreampGain = vl.gePreampGain;
     if (typeof vl.suitcasePreFxTrim === 'number') params.suitcasePreFxTrim = vl.suitcasePreFxTrim;
+    if (typeof vl.jaWetMix === 'number') params.jaWetMix = vl.jaWetMix;
   }
   _epw_node.port.postMessage(params);
   // V4B/poweramp/cabinet now in worklet — no main-thread routing needed

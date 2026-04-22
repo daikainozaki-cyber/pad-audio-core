@@ -40,6 +40,29 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
+## [2026-04-23] {pending-sha} — Phase 4 J-A wet/dry blend 配線 (jaWetMix default 0 = bypass)
+
+### Feature
+- `this.jaWetMix` state を worklet constructor に追加 (default 0 = 完全 bypass、旧 `if (false)` と同等)
+- `if (false)` で封印していた J-A hysteresis 処理本体を `if (this.jaWetMix > 0.001)` で条件分岐化
+- dry/wet blend 処理を追加: `ampSig = dryForJA * (1 - jaWetMix) + wetJA * jaWetMix`
+  - jaWetMix=0 で target 2026-04-23 状態と完全一致
+  - jaWetMix=1 で full J-A (pre/de-emph LowShelf 200Hz ±6dB + Langevin hysteresis)
+- `_updateParams` に `msg.jaWetMix` 受け口 (clamp 0-1)
+- `_epwSendVoicingLabParams` に jaWetMix 伝播
+- `_epwSendParams` が window.EpVoicingLab.jaWetMix を同梱送信
+
+### 背景 (保留扱い)
+Phase 4 T1 J-A は「Suitcase amp 内の低音飽和」を担う。urinami 2026-04-23 明言「Stage で低音が小さいのはアンプの問題ではない、物理の問題」で、**Stage の低音ファット感問題は PU 段 (tine amplitude + 非線形 LUT)** が本丸と再確認された。Phase 4 は Suitcase 向けであり Stage の低音問題を直接解決しない。
+
+実装は default=0 で完全 bypass なので consumer 影響なし。urinami さんが後日 Voicing Lab の J-A MIX slider を上げて試せる状態で保持。
+
+### Consumer 対応
+- default jaWetMix=0 で旧動作と完全一致
+- window.EpVoicingLab.jaWetMix を設定しない consumer (64PE / MRC) は影響なし
+
+---
+
 ## [2026-04-23] 58a268b — Voicing Lab 配線: worklet param 口 + debug hook
 
 ### Feature
