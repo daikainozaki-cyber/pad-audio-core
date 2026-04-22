@@ -40,7 +40,7 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
-## [2026-04-23] {pending-sha} — Phase 4 J-A wet/dry blend 配線 (jaWetMix default 0 = bypass)
+## [2026-04-23] ac44244 — Phase 4 J-A wet/dry blend 配線 (jaWetMix default 0 = bypass)
 
 ### Feature
 - `this.jaWetMix` state を worklet constructor に追加 (default 0 = 完全 bypass、旧 `if (false)` と同等)
