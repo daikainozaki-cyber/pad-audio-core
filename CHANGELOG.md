@@ -40,6 +40,29 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
+## [2026-04-23] {pending-sha} — Voicing Lab 配線: worklet param 口 + debug hook
+
+### Feature
+- `this.suitcasePreFxTrim` state を worklet constructor に追加（default 0.42）
+  - 旧: `ampSig = drySum * this.rhodesLevel * 0.42`（hard-coded 定数）
+  - 新: `ampSig = drySum * this.rhodesLevel * this.suitcasePreFxTrim`（可変）
+- `_updateParams` に Voicing Lab 3 パラメータ受け口を追加:
+  - `msg.gePreampDrive`（clamp ≥ 0.1）
+  - `msg.gePreampGain`（clamp ≥ 0.01）
+  - `msg.suitcasePreFxTrim`（clamp ≥ 0.01）
+- `_onMessage` に `_debugDumpVoicing` hook 追加 — worklet 内の実 voicing 値を main thread に返す（検証・パイプライン診断用）
+- `_epwSendVoicingLabParams(params)` を main thread 側 (epiano-worklet-engine.js) に新設、`window._epwSendVoicingLabParams` で expose
+- `_epwSendParams` が呼ばれる度に `window.EpVoicingLab` の値を worklet に同梱送信（preset 切替等で reset されない）
+
+### Consumer 対応
+- Voicing Lab は keys 検証ツール限定。64PE / MRC / Plugin は `window.EpVoicingLab` を設定しなければ worklet default (2.5 / 1.5 / 0.42) で動作
+- API 追加のみで既存 consumer への影響なし
+
+### 背景
+urinami 2026-04-22「makeup gain 下げて歪ませる = saturator 的に drive を増やす」仮説を耳で A/B 検証するため。Phase 1 Si 2N3392 LUT の voicing 3 値をコード定数から外し、実時間 UI 調整を可能化。
+
+---
+
 ## [2026-04-22] ff8eb6c — Phase 1: Peterson Suitcase preamp Si 2N3392 2-stage topology 訂正
 
 ### Feature

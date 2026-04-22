@@ -115,11 +115,29 @@ function _epwLoadFDTDTables() {
 // PARAMETER UPDATES
 // ========================================
 
+// Voicing Lab (keys 検証ツール、2026-04-22) — Phase 1 Si 2N3392 voicing 値を
+// worklet に送る。main thread の window.EpVoicingLab 経由で Voicing Lab UI から
+// 変更される。undefined 時は worklet 側のデフォルト (constructor 値) が維持される。
+function _epwSendVoicingLabParams(params) {
+  if (!_epw_node) return;
+  var msg = { type: 'params' };
+  if (params && typeof params.gePreampDrive === 'number') msg.gePreampDrive = params.gePreampDrive;
+  if (params && typeof params.gePreampGain === 'number') msg.gePreampGain = params.gePreampGain;
+  if (params && typeof params.suitcasePreFxTrim === 'number') msg.suitcasePreFxTrim = params.suitcasePreFxTrim;
+  _epw_node.port.postMessage(msg);
+}
+// Global exposure for Voicing Lab UI (keys 専用、Plugin 切り出し時は外す)
+if (typeof window !== 'undefined') {
+  window._epwSendVoicingLabParams = _epwSendVoicingLabParams;
+}
+
 function _epwSendParams() {
   if (!_epw_node) return;
   // EpState is SSOT (set by audio.js UI + saved preferences). Read directly — no EpwState copy.
   var preset = EP_AMP_PRESETS[EpState.preset] || EP_AMP_PRESETS['Rhodes DI'];
-  _epw_node.port.postMessage({
+  // Voicing Lab 現在値 (window.EpVoicingLab、未設定なら worklet 側デフォルトを維持)
+  var vl = (typeof window !== 'undefined' && window.EpVoicingLab) ? window.EpVoicingLab : null;
+  var params = {
     type: 'params',
     pickupSymmetry: EpState.pickupSymmetry,
     pickupDistance: EpState.pickupDistance,
@@ -171,7 +189,14 @@ function _epwSendParams() {
     tremoloOn: EpState.tremoloOn || false,
     tremoloFreq: EpState.tremoloFreq || 4.5,
     tremoloDepth: EpState.tremoloDepth || 0,
-  });
+  };
+  // Voicing Lab 現在値があれば載せる (undefined だと worklet 側チェックで skip)
+  if (vl) {
+    if (typeof vl.gePreampDrive === 'number') params.gePreampDrive = vl.gePreampDrive;
+    if (typeof vl.gePreampGain === 'number') params.gePreampGain = vl.gePreampGain;
+    if (typeof vl.suitcasePreFxTrim === 'number') params.suitcasePreFxTrim = vl.suitcasePreFxTrim;
+  }
+  _epw_node.port.postMessage(params);
   // V4B/poweramp/cabinet now in worklet — no main-thread routing needed
 }
 

@@ -1401,8 +1401,9 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     //     topology 訂正では変更しない。Si LUT は既に知覚可能な非線形を
     //     生成する voicing 範囲 (peak 1.05 → 知覚的に saturation 発生) にある。
     this.gePreampLUT = normalizeLUTUnityGain(computePreampLUT_Si2N3392_2stage());
-    this.gePreampDrive = 2.5;  // voicing: urinami A/B tuning pending
-    this.gePreampGain = 1.5;   // voicing: urinami A/B tuning pending
+    this.gePreampDrive = 2.5;  // voicing: Voicing Lab UI で調整 (keys 検証ツール)
+    this.gePreampGain = 1.5;   // voicing: Voicing Lab UI で調整 (keys 検証ツール)
+    this.suitcasePreFxTrim = 0.42; // voicing: pre-preamp trim, Voicing Lab UI 対応
     this.gePreampPrevSample = 0; // 2x oversampling state
     // Interstage transformer: simplified J-A hysteresis model
     // Physics: B = µ₀(H + M), M tracks magnetization with memory (hysteresis)
@@ -1868,6 +1869,17 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
       var lutCopy = new Float32Array(this.gePreampLUT.length);
       for (var i = 0; i < this.gePreampLUT.length; i++) lutCopy[i] = this.gePreampLUT[i];
       this.port.postMessage({ type: '_debugPreampLUT', lut: lutCopy }, [lutCopy.buffer]);
+    } else if (msg.type === '_debugDumpVoicing') {
+      // Voicing Lab 確認: worklet 内の実 voicing 値 (drive / gain / pre-fx trim)
+      // を main thread に返す。postMessage パイプが届いているか検証する用途。
+      this.port.postMessage({
+        type: '_debugVoicing',
+        gePreampDrive: this.gePreampDrive,
+        gePreampGain: this.gePreampGain,
+        suitcasePreFxTrim: this.suitcasePreFxTrim,
+        ampType: this.ampType,
+        useCabinet: this.useCabinet,
+      });
     }
   }
 
@@ -1877,6 +1889,10 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     if (msg.preampGain !== undefined) this.preampGain = msg.preampGain;
     // msg.powerampDrive removed 2026-04-13 — Twin-only param.
     if (msg.volumePot !== undefined) this.volumePot = msg.volumePot;
+    // Voicing Lab (keys 検証ツール、2026-04-22) — Phase 1 Si 2N3392 voicing A/B
+    if (msg.gePreampDrive !== undefined)   this.gePreampDrive   = Math.max(0.1, +msg.gePreampDrive || 2.5);
+    if (msg.gePreampGain !== undefined)    this.gePreampGain    = Math.max(0.01, +msg.gePreampGain || 1.5);
+    if (msg.suitcasePreFxTrim !== undefined) this.suitcasePreFxTrim = Math.max(0.01, +msg.suitcasePreFxTrim || 0.42);
     if (msg.springReverbMix !== undefined) {
       this.springReverbMix = msg.springReverbMix;
       this.reverbPot = msg.springReverbMix;
@@ -2929,7 +2945,7 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
             // was the source of multiple routing regressions.
             drySum += scSpringWet;
           }
-          ampSig = drySum * this.rhodesLevel * 0.42; // Suitcase: attenuate before Ge to stay in linear region
+          ampSig = drySum * this.rhodesLevel * this.suitcasePreFxTrim; // Suitcase pre-preamp trim (voicing, adjustable via Voicing Lab UI)
 
           // --- Germanium preamp (Shockley soft knee, shared chain) ---
           ampSig *= this.gePreampDrive;
