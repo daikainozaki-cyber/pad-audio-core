@@ -40,7 +40,7 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
-## [2026-04-22] {pending-sha} — Phase 1: Peterson Suitcase preamp Si 2N3392 2-stage topology 訂正
+## [2026-04-22] ff8eb6c — Phase 1: Peterson Suitcase preamp Si 2N3392 2-stage topology 訂正
 
 ### Feature
 - `computePreampLUT_Si2N3392_2stage()` 追加（engine + worklet 両方）— Peterson 80W schematic fig11-8 精読結果を反映した Si NPN 2 段 CE カスケード
