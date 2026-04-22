@@ -40,7 +40,7 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
-## [2026-04-23] {pending-sha} — Voicing Lab 配線: worklet param 口 + debug hook
+## [2026-04-23] 58a268b — Voicing Lab 配線: worklet param 口 + debug hook
 
 ### Feature
 - `this.suitcasePreFxTrim` state を worklet constructor に追加（default 0.42）
