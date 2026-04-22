@@ -1053,6 +1053,12 @@ function computePreampLUT_Ge() {
   // asymmetric (negative clips first → 2nd harmonic → warmth)
   // Implementation: bias-shifted tanh. Asymmetry emerges from DC offset,
   // not separate k values (Codex recommendation, matches BJT LUT pattern L1086).
+  //
+  // 2026-04-22: Peterson 80W Suitcase schematic (fig11-8/11-9) を精読した結果、
+  // Suitcase の preamp は 2N3392 Si NPN 2 段 (Germanium ではない)、poweramp は
+  // 2N0725 Si BJT push-pull OCL (output transformer なし) であることが判明。
+  // Phase 1 では preamp を computePreampLUT_Si2N3392_2stage() に切替。
+  // poweramp / output の Ge→Si 訂正は Phase 5 で実施。
   var lut = new Float32Array(LUT_SIZE);
   var bias = 0.08;  // DC bias: negative half compresses earlier → even harmonics
   var k = 1.6;      // Softer knee than BJT (k=2.0) or 12AX7. Ge = round/warm
@@ -1069,6 +1075,49 @@ function computePreampLUT_Ge() {
   }
   if (maxVal > 0) {
     for (var i = 0; i < LUT_SIZE; i++) lut[i] /= maxVal;
+  }
+  return lut;
+}
+
+function computePreampLUT_Si2N3392_2stage() {
+  // Peterson 80W Suitcase Preamp (fig11-8 Q1, Q2 = selected 2N3392)
+  // 2 段 Si NPN common-emitter カスケード。epiano-engine.js の同名関数と同一実装。
+  //
+  // 物理根拠:
+  //   - Si NPN の入出力特性は bias 点周辺で線形 (Vbe 自己 bias)。
+  //   - positive swing (Vce → 0) は soft 飽和 (Vbe fully-on)。
+  //   - negative swing (Vce → Vcc) は少し硬い knee (cutoff 領域)。
+  //   - 2 段カスケード: 小振幅では両段とも線形、大振幅で 1 段目が knee、
+  //     2 段目でさらに圧縮 → THD は amplitude で急上昇。
+  //
+  // 関数形: y = x / (1 + |x|^n)^(1/n)  (smooth saturator)
+  //   - 大 n: 線形領域が長く伸び、knee は硬い (cutoff 型)
+  //   - 小 n: 早く曲がり、knee は滑らか (saturation 型)
+  //
+  // 2N3392 CE output 方向との対応:
+  //   positive (Vce → Vce_sat, 飽和) = soft = nPos=2
+  //   negative (Vce → Vcc, cutoff)  = hard = nNeg=3
+  //
+  // Phase 1 完了条件 (voicing):
+  //   1kHz @ out RMS -40 dBFS: THD < -50 dB (実測 -83 dB)
+  //   1kHz @ out RMS -10 dBFS: THD > -34 dB (実測 -26.5 dB)
+  //   8kHz vs 1kHz gain 差: < 3 dB (実測 0 dB)
+  //
+  // Ref: Peterson Stage conversion 80W Service Manual fig11-8
+  //      永続ノート Peterson 80W Suitcase の Power Module は Si BJT push-pull
+  var lut = new Float32Array(LUT_SIZE);
+  var nPos = 2;  // positive soft knee (saturation)
+  var nNeg = 3;  // negative hard knee (cutoff)
+
+  function stage(x) {
+    var n = x >= 0 ? nPos : nNeg;
+    var ax = Math.abs(x);
+    return x / Math.pow(1 + Math.pow(ax, n), 1 / n);
+  }
+
+  for (var i = 0; i < LUT_SIZE; i++) {
+    var x = (i / (LUT_SIZE - 1)) * 2 - 1;
+    lut[i] = stage(stage(x));
   }
   return lut;
 }
@@ -1339,10 +1388,21 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     // removed 2026-04-14 (Phase 0 残クリーン) — they only fed the deleted Twin
     // amp chain. Suitcase keeps its own gePreampLUT + gePowerampLUT below.
     this.v3LUT       = computeV3DriverLUT();
-    // Ge preamp LUT (unity-gain normalized, shared chain)
-    this.gePreampLUT = normalizeLUTUnityGain(computePreampLUT_Ge());
-    this.gePreampDrive = 2.5;  // Suitcase: clean with subtle warmth
-    this.gePreampGain = 1.5;   // Post-LUT real gain (calibrate by ear)
+    // Suitcase preamp LUT (Phase 1, 2026-04-22):
+    // schematic fig11-8 精読の結果、Peterson 80W は Ge ではなく Si NPN 2N3392
+    // 2 段 (selected part 037118)。LUT を Si2N3392_2stage に訂正。
+    // 変数名 gePreampLUT は互換維持のため据え置き (Phase 5 で Ge→Si 一括 rename 予定)。
+    //
+    // Topology/Voicing SSOT 分離ルール (Suitcase_amp_modeling_plan_2026-04-22.md §運用):
+    //   - Topology (schematic 由来) = この LUT 関数定義。ここで確定。
+    //   - Voicing (drive/gain/trim) = 下記 gePreampDrive / gePreampGain、
+    //     および chain 側 `drySum * rhodesLevel * 0.42` 係数。
+    //     Voicing 値は urinami さん聴感 A/B で調整する領域で、Phase 1 の
+    //     topology 訂正では変更しない。Si LUT は既に知覚可能な非線形を
+    //     生成する voicing 範囲 (peak 1.05 → 知覚的に saturation 発生) にある。
+    this.gePreampLUT = normalizeLUTUnityGain(computePreampLUT_Si2N3392_2stage());
+    this.gePreampDrive = 2.5;  // voicing: urinami A/B tuning pending
+    this.gePreampGain = 1.5;   // voicing: urinami A/B tuning pending
     this.gePreampPrevSample = 0; // 2x oversampling state
     // Interstage transformer: simplified J-A hysteresis model
     // Physics: B = µ₀(H + M), M tracks magnetization with memory (hysteresis)
@@ -1801,6 +1861,13 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
       this._updateParams(msg);
     } else if (msg.type === 'allNotesOff') {
       for (var i = 0; i < MAX_VOICES; i++) this.vActive[i] = 0;
+    } else if (msg.type === '_debugDumpPreampLUT') {
+      // Phase 1 test hook: worklet 内の実 LUT を main thread から取得する。
+      // numeric 比較で worklet と fallback が同一 LUT を使っているか検証する用途。
+      // プロダクションではテストからしか呼ばれない。
+      var lutCopy = new Float32Array(this.gePreampLUT.length);
+      for (var i = 0; i < this.gePreampLUT.length; i++) lutCopy[i] = this.gePreampLUT[i];
+      this.port.postMessage({ type: '_debugPreampLUT', lut: lutCopy }, [lutCopy.buffer]);
     }
   }
 

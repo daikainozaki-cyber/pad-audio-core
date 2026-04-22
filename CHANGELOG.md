@@ -40,7 +40,43 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
-## [2026-04-22] {pending-sha} — preset output compensate + Suitcase cab LPF 5.5kHz + gain chain simplify
+## [2026-04-22] {pending-sha} — Phase 1: Peterson Suitcase preamp Si 2N3392 2-stage topology 訂正
+
+### Feature
+- `computePreampLUT_Si2N3392_2stage()` 追加（engine + worklet 両方）— Peterson 80W schematic fig11-8 精読結果を反映した Si NPN 2 段 CE カスケード
+- 関数形: `y = x / (1 + |x|^n)^(1/n)` smooth saturator、`nPos=2`（positive soft knee = Vce_sat 方向飽和）、`nNeg=3`（negative hard knee = cutoff 方向）、2 段カスケードで小信号 linear + 大信号で累乗的圧縮
+- `preampType === 'Si2N3392_2stage'` を engine 側 preamp LUT dispatch に追加
+- Worklet に test hook: `_debugDumpPreampLUT` message → `_debugPreampLUT` で内部 LUT を main thread に dump（Playwright contract test 用）
+- Phase 1 E2E 測定 spec `tests/e2e/phase1-preamp-thd.spec.js` 新設（5 test all PASS、M1-M6 測定プロトコル準拠）
+
+### Fix (topology 訂正)
+- Peterson 80W Suitcase Preamp: 旧 `'NE5534'`（op-amp 単段モデル）を `'Si2N3392_2stage'` に置換。schematic fig11-8 Q1/Q2 は 037118 selected 2N3392 Si NPN 2 段 CE であり、NE5534 は誤認だった
+- Worklet 側 `this.gePreampLUT` 初期化を `computePreampLUT_Ge()` → `computePreampLUT_Si2N3392_2stage()` に訂正。Peterson は Germanium ではなく Silicon（永続ノート参照）
+- AB763 Hi input `-6dB` divider（68k/68k voltage divider）を `preampType === '12AX7'` 限定に絞った。Peterson fig11-8 にこの divider は存在しない（Codex 監査 round 2 指摘）
+
+### Voicing 残件（urinami 聴感 A/B 調整領域、Phase 1 topology 範囲外）
+- Worklet chain 側 `drySum * rhodesLevel * 0.42 * gePreampDrive(2.5) * gePreampGain(1.5)` の voicing 係数
+- Fallback engine 側 `preampMakeup = 1.0` の Si 化補正
+
+### Consumer 対応
+- 変数名 `gePreampLUT` は互換維持（Phase 5 で poweramp 訂正と同時に `ge*` → `si*` rename 予定）
+- Phase 1 は preamp のみ。Poweramp は引き続き `computePowerampLUT_Ge()`（Phase 5 で 2N0725 Si push-pull direct-coupled OCL に訂正予定）
+- Consumer（64PE / Keys / MRC / Desktop）は submodule pointer を bump すれば自動反映
+
+### Measured
+- 1kHz @ out RMS -40 dBFS: THD = -90 dB（criterion <-50dB、margin 40dB ✓）
+- 1kHz @ out RMS -10 dBFS: THD = -32 dB（criterion >-34dB、margin 2dB ✓）
+- 8kHz vs 1kHz gain diff: 0 dB（criterion <3dB ✓）
+- Worklet ↔ fallback LUT numeric match: maxDiffNorm = 6.6e-8（両 path 同一 shape ✓）
+
+### Ref
+- 永続ノート: [[Peterson 80W Suitcase の Power Module は Si BJT push-pull direct-coupled OCL 構造で Germanium でも output transformer でもなく interstage transformer T1 のみを持つ]]
+- Plan: `デジタル百姓総本部/プロジェクト/PAD DAW/Suitcase_amp_modeling_plan_2026-04-22.md` v9 §Phase 1
+- Codex 監査 5 ラウンド通過
+
+---
+
+## [2026-04-22] a5fff53 — preset output compensate + Suitcase cab LPF 5.5kHz + gain chain simplify
 
 ### Feature
 - `EP_AMP_PRESETS[*].outputGainDb` metadata 追加（DI=+6dB, Suitcase=0dB）

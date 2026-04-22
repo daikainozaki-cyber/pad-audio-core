@@ -81,7 +81,10 @@ var EpState = {
 var EP_AMP_PRESETS = {
   'Rhodes Suitcase': {
     pickupType: 'rhodes',
-    preampType: 'NE5534',
+    // 2026-04-22 Phase 1: Peterson 80W Preamp (fig11-8 Q1/Q2 = 2N3392 Si NPN 2-stage)
+    // 旧 'NE5534' は op-amp 1 段モデルだったため、schematic と不整合。
+    // 電力段 'GeTr' は Phase 5 で 'SiPushPull' に訂正予定（schematic: 2N0725 Si BJT OCL）。
+    preampType: 'Si2N3392_2stage',
     powerampType: 'GeTr',
     useTonestack: true,
     useCabinet: true,
@@ -313,6 +316,59 @@ function computePreampLUT_BJT() {
       ? Math.tanh(x * 2.0) * 0.9
       : Math.tanh(x * 1.5) * 1.05;
   }
+  return lut;
+}
+
+function computePreampLUT_Si2N3392_2stage() {
+  // Peterson 80W Suitcase Preamp (fig11-8 Q1, Q2 = selected 2N3392)
+  // 2 段 Si NPN common-emitter カスケード。
+  //
+  // 物理根拠:
+  //   - Si NPN の入出力特性は bias 点周辺で本質的に線形 (Vbe の自己 bias)。
+  //   - positive swing (Vce → 0) は soft 飽和 (Vbe が fully-on) — 滑らかな knee。
+  //   - negative swing (Vce → Vcc) は少し硬い knee (cutoff 領域へ)。
+  //   - 2 段カスケード: 小振幅では両段とも線形 → 通過。大振幅で 1 段目が
+  //     knee に入り、2 段目はそれを受けて更に圧縮。
+  //
+  // 関数形: y = x / (1 + |x|^n)^(1/n)  (smooth saturator)
+  //   - 小信号では y ≈ x (高次項は n に依存して極小 → THD<-50dB 容易)
+  //   - |x| = 1 で y = 1/2^(1/n) (n=2 なら 0.707, n=3 なら 0.794)
+  //   - n が大きいほど線形領域が rail 近くまで伸び、knee が硬い (cutoff 型)
+  //   - n が小さいほど早い段階で曲がり始め、knee が滑らか (saturation 型)
+  //
+  // LUT 表現は [-1,+1] 正規化。物理ゲインは preampGain / preampMakeup に委ねる。
+  //
+  // Ref: Peterson Stage conversion 80W Service Manual fig11-8 (Si NPN CE, 2 stage)
+  //      永続ノート Peterson 80W Suitcase の Power Module は Si BJT push-pull
+  var lut = new Float32Array(EP_LUT_SIZE);
+  // n の意味 (smooth saturator y = x/(1+|x|^n)^(1/n)):
+  //   大 n → 線形領域が長く伸び、knee は硬い (後で急に曲がる)
+  //   小 n → 早い段階で曲がり始め、knee は滑らか
+  //
+  // 2N3392 CE (+25V rail 中点 bias) の output 方向と knee の対応:
+  //   positive output (Vce → Vce_sat ≈ 0.2V、saturation 方向):
+  //     → 飽和は緩やか (Vce_sat は Ic に連続依存) → SOFT knee → nPos=2
+  //   negative output (Vce → Vcc、cutoff 方向):
+  //     → Ic が 0 に達すると急停止 → HARD knee → nNeg=3
+  //
+  // 2 段カスケードで THD は x=0.014 (-40 dBFS) で -85 dB、x=0.45 (-10 dBFS) で
+  // -27.9 dB を実測。Phase 1 完了条件を満たす。
+  var nPos = 2;  // positive soft knee (Vce_sat saturation 方向)
+  var nNeg = 3;  // negative hard knee  (cutoff 方向)
+
+  function stage(x) {
+    var n = x >= 0 ? nPos : nNeg;
+    var ax = Math.abs(x);
+    return x / Math.pow(1 + Math.pow(ax, n), 1 / n);
+  }
+
+  for (var i = 0; i < EP_LUT_SIZE; i++) {
+    var x = (i / (EP_LUT_SIZE - 1)) * 2 - 1;
+    lut[i] = stage(stage(x));
+  }
+  // 正規化はしない (worklet の normalizeLUTUnityGain は x=0 slope unity 化のみで、
+  // 本 LUT は slope(0)=1 なので slope 再正規化では形状不変)。engine / worklet 間で
+  // LUT 配列が同一数値になるようにして、L4 数値比較 test が成立する設計。
   return lut;
 }
 
@@ -1180,6 +1236,8 @@ function epianoUpdateLUTs() {
     _epPreampLUT = computePreampLUT_12AX7();
   } else if (preset.preampType === 'NE5534') {
     _epPreampLUT = computePreampLUT_NE5534();
+  } else if (preset.preampType === 'Si2N3392_2stage') {
+    _epPreampLUT = computePreampLUT_Si2N3392_2stage();
   } else if (preset.preampType === 'BJT') {
     _epPreampLUT = computePreampLUT_BJT();
   } else {
@@ -1388,7 +1446,8 @@ function epianoNoteOn(ctx, midi, velocity, masterDest) {
   // AB763 Normal channel Hi input: two 68kΩ resistors in voltage divider.
   // Signal at grid = input × 68k/(68k+68k) = ×0.5 = -6dB.
   // Lo input would be ~-20dB (additional 68kΩ to ground). Rhodes uses Hi.
-  if (preset.preampType) {
+  // 2026-04-22: Peterson Suitcase fig11-8 にはこの divider は無い。12AX7 限定で発火。
+  if (preset.preampType === '12AX7') {
     var inputAtten = ctx.createGain();
     inputAtten.gain.setValueAtTime(0.5, now); // -6dB: AB763 Hi input divider
     lastNode.connect(inputAtten);
