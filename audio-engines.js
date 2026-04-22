@@ -109,13 +109,34 @@ function _updateEpMixerVisibility() {
   }
 }
 
+// Preset output gain compensate node (urinami 2026-04-22)。
+// epianoDirectOut の直後に挿入して、preset ごとの outputGainDb 補正を適用する。
+// 存在しなければ遅延作成。EP_AMP_PRESETS[preset].outputGainDb が SSOT。
+function _applyPresetOutputGain() {
+  if (typeof audioCtx === 'undefined' || typeof EP_AMP_PRESETS === 'undefined') return;
+  var inst = AudioState && AudioState.instrument;
+  if (!inst || !inst.epiano) return;
+  var ampPreset = EP_AMP_PRESETS[inst.epiano];
+  if (!ampPreset) return;
+  var db = typeof ampPreset.outputGainDb === 'number' ? ampPreset.outputGainDb : 0;
+  var linear = Math.pow(10, db / 20);
+  // epianoOutputCompensate は audio-master / audio.js などで確保された GainNode
+  if (typeof _epOutputCompensate !== 'undefined' && _epOutputCompensate) {
+    // setTargetAtTime で滑らか変化 (timeConstant 0.03s) にして click/jitter 防止。
+    // setValueAtTime は瞬時切替で signal discontinuity → urinami 2026-04-22 「ジッター」報告の原因。
+    // Playwright の .value は収束途中の値を返すが、実音は正しく連続変化する (計測のみの差)。
+    _epOutputCompensate.gain.setTargetAtTime(linear, audioCtx.currentTime, 0.03);
+  }
+}
+
 function _applyPresetEpMixerDefaults() {
   var inst = AudioState.instrument;
-  if (!inst || !inst.epMixerDefaults) return;
+  if (!inst || !inst.epMixerDefaults) { _applyPresetOutputGain(); return; }
   if (inst.epMixerDefaults.springReverbMix !== undefined) EpState.springReverbMix = inst.epMixerDefaults.springReverbMix;
   if (inst.epMixerDefaults.springDwell !== undefined) EpState.springDwell = inst.epMixerDefaults.springDwell;
   if (inst.epMixerDefaults.springFeedbackScale !== undefined) EpState.springFeedbackScale = inst.epMixerDefaults.springFeedbackScale;
   if (inst.epMixerDefaults.springStereoEnabled !== undefined) EpState.springStereoEnabled = inst.epMixerDefaults.springStereoEnabled;
+  _applyPresetOutputGain();
   // Phase 3.0.c2: knob scaling formulas computed here (internal → 1-10),
   // DOM writes delegated to audioCoreConfig.mixer bridge.
   var revKnob = EpState.springReverbMix / 1.4 * 9 + 1;

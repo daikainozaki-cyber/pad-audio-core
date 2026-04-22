@@ -146,6 +146,7 @@ function rebuildFilterChain() {
   chain.connect(audioCtx.destination);
 }
 
-// DI chain terminates at masterBus (Suitcase amp out and Plate reverb
-// return also land on masterBus — see audio-reverb.js).
-flangerMix.connect(masterBus);
+// DI chain terminates at _epOutputCompensate (preset 間音量揃え、
+// 2026-04-22 urinami 音量標準化)。
+// _epOutputCompensate は audio-master.js で定義され masterBus へ接続される。
+flangerMix.connect(_epOutputCompensate);

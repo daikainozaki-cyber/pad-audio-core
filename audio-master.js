@@ -74,6 +74,23 @@ masterBus.gain.setValueAtTime(1.0, 0);
 // audio-effects.js inserts loCut/hiCut between them when those toggles are on.
 masterBus.connect(audioCtx.destination);
 
+// --- Preset output compensate (urinami 2026-04-22 音量標準化) ---
+// Preset 間の素の出力レベル差を dB 補正で揃える段。audio-engines.js の
+// _applyPresetOutputGain() が EP_AMP_PRESETS[preset].outputGainDb を linear
+// 値に変換して .gain に書き込む。DI は基準 (0 dB = gain 1.0)、Suitcase は
+// 内蔵アンプで音量が上がるので -12 dB 補正 (gain ≈ 0.251)。
+// 信号経路への挿入は consumer 側 (64PE host-adapter / audio.js) で、
+// epianoAmpOut / epianoDirectOut → _epOutputCompensate → masterBus の順。
+const _epOutputCompensate = audioCtx.createGain();
+_epOutputCompensate.gain.setValueAtTime(1.0, 0);
+_epOutputCompensate.connect(masterBus);
+// Debug hook for Playwright/urinami 検証用: window._DEBUG で gain 実測できる
+if (typeof window !== 'undefined') {
+  window._DEBUG = window._DEBUG || {};
+  window._DEBUG._epOutputCompensate = _epOutputCompensate;
+  window._DEBUG.masterBus = masterBus;
+}
+
 const _sr = audioCtx.sampleRate;
 // Spring reverb runs inside the epiano AudioWorklet (Suitcase preset).
 // Web-Audio side no longer hosts a master reverb — the tank + Ge preamp

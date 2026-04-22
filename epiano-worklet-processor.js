@@ -1405,7 +1405,7 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.suitcaseCabHPFCoeff  = biquadHighpass(90, 0.707, fs);
     this.suitcaseCabResCoeff  = biquadPeaking(94, 1.0, 2.0, fs);    // Fs=94Hz, tight (+2dB, "tight lows")
     this.suitcaseCabPeakCoeff = biquadPeaking(1800, 1.5, 6.0, fs);  // Upper mid emphasis, warm
-    this.suitcaseCabLPFCoeff  = biquadLowpass(4000, 0.707, fs);      // 4kHz rolloff (warm/dark vs Jensen 6kHz)
+    this.suitcaseCabLPFCoeff  = biquadLowpass(5500, 0.707, fs);      // Eminence Legend 1258 sealed-cabinet -6dB point ≈5.5kHz (urinami 2026-04-22 実機合わせ)
     // Separate biquad states for Suitcase (no cross-contamination on amp type switch)
     this.suitcaseCabHPFState  = new Float32Array(2);
     this.suitcaseCabResState  = new Float32Array(2);

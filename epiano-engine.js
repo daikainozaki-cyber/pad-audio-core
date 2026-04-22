@@ -73,6 +73,11 @@ var EpState = {
 // experimental/twin-amp-preset.md for future reference; the DSP branch
 // inside epiano-worklet-processor.js is dead code that will be deleted
 // in Phase 0.3c.
+// outputGainDb: preset 間の音量揃え (urinami 2026-04-22 方針)。
+// DAW の他プラグインと並べた時、マスター VOL=5/10 で同じような平均音量に
+// なることを目標に、preset ごとの素の出力レベル差を dB 補正で埋める。
+// 基準: DI (アンプ無し)。Suitcase は内蔵アンプで音量が上がるので dB を下げる。
+// 物理モデルの内部挙動は変えず、最終段の gain staging のみ補正する。
 var EP_AMP_PRESETS = {
   'Rhodes Suitcase': {
     pickupType: 'rhodes',
@@ -92,6 +97,10 @@ var EP_AMP_PRESETS = {
     springModDepth: 4.0,
     springHfMix: 0.0005,
     springFeedbackScale: 0.88,
+    // Suitcase 内蔵アンプ自然増 +12dB に対して compensate で 0dB 補正 (全体底上げ)。
+    // DI は +12dB 底上げ、Suitcase は 0dB (元の自然アンプを活かす)。相対差 12dB 維持。
+    // 2026-04-22 第2次: urinami 実機テストで「変化が聞こえない」ため +6 → 0dB に引き上げ。
+    outputGainDb: 0,
   },
   // 'Wurlitzer 200A' preset was removed on 2026-04-13 (Phase 0.3c) —
   // never exposed in the user-facing ENGINES registry, and its only
@@ -118,6 +127,9 @@ var EP_AMP_PRESETS = {
     springModDepth: 0.0,
     springHfMix: 0.0,
     springFeedbackScale: 0.9,
+    // DI は PU 直接出力。+12dB はクリップ、+6dB は Suitcase と並べて適正。
+    // 2026-04-22 第3次: urinami「クリップする所がある」→ +12 → +6 に下げ。
+    outputGainDb: 6,
   },
 };
 

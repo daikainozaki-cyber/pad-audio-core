@@ -40,6 +40,28 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
+## [2026-04-22] {pending-sha} — preset output compensate + Suitcase cab LPF 5.5kHz + gain chain simplify
+
+### Feature
+- `EP_AMP_PRESETS[*].outputGainDb` metadata 追加（DI=+6dB, Suitcase=0dB）
+- `audio-master.js` に `_epOutputCompensate` GainNode 新設（masterBus 直前に挿入）
+- `audio-engines.js` `_applyPresetOutputGain()` 追加 — preset 切替時に dB→linear で compensate gain を `setTargetAtTime(30ms)` 適用
+- Debug hook: `window._DEBUG._epOutputCompensate` / `window._DEBUG.masterBus`（Playwright 実測用）
+
+### Fix
+- Suitcase cabinet LPF cutoff `4000 → 5500 Hz`（Eminence Legend 1258 sealed-box -6dB point 実測値に合わせ、urinami 2026-04-22「上が出なさすぎる」修正）
+- `epianoDirectOut` / `epianoAmpOut` 初期 gain `0.49 → 1.0`（slider 初期値の歴史的残骸を除去、マスター VOL は `masterBus` が単独制御）
+
+### Routing
+- DI chain (`flangerMix`) / Suitcase amp out (`epianoAmpOut`) / Plate reverb return (`ePlateReturn`) が **masterBus 直結から _epOutputCompensate 経由に変更**
+- 目的: 物理モデル内部挙動を変えずに preset 間音量揃えを最終段でのみ補正（urinami 2026-04-22 設計方針）
+
+### Consumer 対応
+- 64PE / Keys / MRC など consumer は、新 GainNode `_epOutputCompensate` を参照する必要はない（既存の masterBus 連携はそのまま動作）
+- preset 切替時の音量補正挙動は自動有効化。Opt-out 不要
+
+---
+
 ## [2026-04-16] 3acbd6c — schemaVersion minor warn + CHANGELOG-enforcing hook（Plan C）
 
 ### Feature

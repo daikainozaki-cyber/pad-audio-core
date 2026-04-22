@@ -21,12 +21,18 @@
 // epiano-worklet-processor.js now (tank wet merges with dry before the Ge
 // preamp so wet/dry share the amp + cabinet). No Web-Audio reverb send here.
 const epianoDirectOut = audioCtx.createGain();
-epianoDirectOut.gain.setValueAtTime(0.49, 0); // urinami-san default VOL
+// 2026-04-22 音量底上げ: 旧 0.49 は slider 初期値のミラー (歴史的残骸)。
+// マスター VOL は masterBus で制御するのでここは 1.0 固定にして、preset 間
+// の補正は _epOutputCompensate (audio-master.js) で行う。
+epianoDirectOut.gain.setValueAtTime(1.0, 0);
 // Amp output: worklet (with internal amp chain + spring reverb) bypasses
-// DI effects chain → masterBus direct.
+// DI effects chain → _epOutputCompensate → masterBus.
+// 2026-04-22: preset 間の音量揃えを _epOutputCompensate で吸収するため、
+// masterBus 直前に compensate gain 段を挟む (urinami 音量標準化方針)。
 const epianoAmpOut = audioCtx.createGain();
-epianoAmpOut.gain.setValueAtTime(0.49, 0);
-epianoAmpOut.connect(masterBus);
+// 2026-04-22: epianoDirectOut と同じく 1.0 固定。
+epianoAmpOut.gain.setValueAtTime(1.0, 0);
+epianoAmpOut.connect(_epOutputCompensate);
 // Plate reverb (post-tremolo, external studio effect)
 function _buildPlateImpulseResponse(seconds, decay, hpfHz) {
   const sr = audioCtx.sampleRate;
@@ -63,7 +69,8 @@ epianoDirectOut.connect(ePlateSend);
 ePlateSend.connect(epianoPlateConvolver);
 epianoPlateConvolver.connect(ePlateHPF);
 ePlateHPF.connect(ePlateReturn);
-ePlateReturn.connect(masterBus);
+// 2026-04-22: plate reverb return も compensate 段を経由 (urinami 音量標準化)
+ePlateReturn.connect(_epOutputCompensate);
 
 function _updatePlateRouting() {
   var plateOn = EpState.reverbType === 'plate';
