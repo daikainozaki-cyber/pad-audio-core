@@ -371,9 +371,16 @@ function bandModeExcitation(xi_center, bandNorm, m) {
 
 function puGapMm(midi) {
   // 2026-04-07: gradual curve instead of step function.
-  // Old: bass/treble=1.588, mid=0.794 (2x step → LUT too shallow for bass).
-  // v1 unified 0.794: bass output exploded → D2以下 silence (PU too close, g'(q) overflow).
-  // v2 gradual: smooth taper from bass (1.1mm) to mid (0.794mm) to treble (1.1mm).
+  //
+  // 履歴:
+  //   Old: step bass/treble=1.588, mid=0.794 (2x step → LUT too shallow for bass).
+  //   v1 unified 0.794: bass output exploded → D2以下 silence (PU too close, g'(q) overflow).
+  //   v2 gradual: smooth taper bass (1.1mm) → mid (0.794mm) → treble (1.1mm).
+  //
+  // 2026-04-23 A-2 試行 (0.9/0.85/0.80/0.60mm 測定): 音量逆U字に影響なし (±0.3 dB)。
+  //   LUT 0.7/refPeak normalize が gap 効果を相殺。v2 (1.1mm) に revert。
+  //   詳細: notes/permanent/2026/Rhodes物理モデリングの音量逆U字は...
+  //
   // Physics: SM voicing range is 1/16"-1/8" (1.588-3.175mm) adjustable.
   // Well-voiced Rhodes sits closer than SM max. Bass slightly wider for clearance.
   var key = midi - 20;
@@ -705,9 +712,11 @@ function computeTineAmplitude(midi, velocity) {
 
   // Map to PU physical coordinates (25mm normalization):
   // A4 forte tip displacement ≈ 1.5mm (Falaize 2017 Fig 10a) → 1.5/25 = 0.06.
-  // 2026-03-25: increased to 0.12 to match Gabrielli H2/H3 spectrum with corrected
-  // PU Lhor (1.5mm physical). The higher tineAmp drives deeper into PU nonlinearity
-  // → H3 rises from -40dB to -12dB. PU_EMF_SCALE halved to maintain output level.
+  // 2026-03-25: increased to 0.12 to match Gabrielli H2/H3 spectrum.
+  //
+  // 2026-04-23 A-4 試行 (tineScale 0.12→0.18 per-key curve): 音量逆U字への効果限定的
+  //   (両端 +0.8-1.0 dB、中間不変)。peak 上昇副作用あり。0.12 固定に revert。
+  //   詳細: notes/permanent/2026/Rhodes物理モデリングの音量逆U字は...
   var result = (A_raw / TINE_A4_RAW) * 0.12;
 
   // --- Bass amplitude rolloff DISABLED (2026-03-30) ---
@@ -907,7 +916,7 @@ function cylinderBz(rho, z, a, h) {
 //     New: ~0.06 (1.5mm) at default → matches Gabrielli H2/H3 spectrum.
 //   Lver: voicing offset (tine axis vs pole axis).
 //     SM: ~1mm typical. Old: 0.088 (2.2mm). New: ~0.03 (0.8mm).
-function puLutParams(symmetry, distance, gapMm, qRange, lverOffset) {
+function puLutParams(symmetry, distance, gapMm, qRange, lverOffset, lhorOffset) {
   var sym = symmetry < 0 ? 0 : (symmetry > 1 ? 1 : symmetry);
   // Lver: voicing screw offset. sym=0 → on-axis, sym=1 → max offset ~5mm.
   // 2026-03-27: increased from 0.086 (2.15mm) to 0.2 (5mm).
@@ -916,17 +925,21 @@ function puLutParams(symmetry, distance, gapMm, qRange, lverOffset) {
   // Real voicing screw range: ~3-5mm physical travel.
   var Lver = sym * 0.2 + ((lverOffset !== undefined) ? lverOffset : 0);
   // Lhor: physical gap + tine radius. Gap varies per register.
+  // 2026-04-23: lhorOffset per-key feed を追加 (Codex 2026-04-07 指摘の sync miss 解消)。
+  // KEY_VARIATION[midi*3+1] が ±0.02 range で per-key random variation を提供するが、
+  // これまで LUT に渡されず、per-key 個体差 (PU screw voicing の揺らぎ) が消えていた。
   var gap_norm = ((gapMm !== undefined) ? gapMm : 0.794) / 25.0; // mm → normalized
   var tine_radius = 0.04; // ~1mm / 25mm
-  var Lhor = gap_norm + tine_radius + distance * 0.04; // distance slider adds 0-0.04
+  var lhorOff = (lhorOffset !== undefined) ? lhorOffset : 0;
+  var Lhor = gap_norm + tine_radius + distance * 0.04 + lhorOff; // + per-key PU screw variation
   var qr = (qRange !== undefined && qRange > 0) ? qRange : 1.0;
   return { Lver: Lver, Lhor: Lhor, qr: qr };
 }
 
 // --- Dipole PU model (legacy, kept for A/B comparison) ---
-function computePickupLUT_dipole(symmetry, distance, gapMm, qRange, lverOffset) {
+function computePickupLUT_dipole(symmetry, distance, gapMm, qRange, lverOffset, lhorOffset) {
   var lut = new Float32Array(LUT_SIZE);
-  var p = puLutParams(symmetry, distance, gapMm, qRange, lverOffset);
+  var p = puLutParams(symmetry, distance, gapMm, qRange, lverOffset, lhorOffset);
   var Lhor2 = p.Lhor * p.Lhor;
   var Rp = 0.2;
   var Rp2 = Rp * Rp;
@@ -938,6 +951,9 @@ function computePickupLUT_dipole(symmetry, distance, gapMm, qRange, lverOffset) 
     var r5 = r2 * r2 * Math.sqrt(r2);
     lut[i] = -3.0 * d / r5;
   }
+  // 2026-04-23 B-1 試行 revert: per-key normalize は逆効果 (低音 -3〜-4 dB 悪化)。
+  // 固定 refPeak は逆に低音 LUT を part boost していた側で、外すと赤字露呈。
+  // 詳細: notes/permanent/2026/Rhodes物理モデリングの音量逆U字は...
   var refLver = 0.15, refLhor = 0.25;
   var refR2 = refLhor * refLhor + refLver * refLver + Rp2;
   var refR5 = refR2 * refR2 * Math.sqrt(refR2);
@@ -963,9 +979,9 @@ function computePickupLUT_dipole(symmetry, distance, gapMm, qRange, lverOffset) 
 var CYL_A = 0.14;    // effective pole radius in normalized coords (3.5mm / 25mm)
 var CYL_H = 0.508;   // magnet height in normalized coords (12.7mm / 25mm)
 
-function computePickupLUT(symmetry, distance, gapMm, qRange, lverOffset) {
+function computePickupLUT(symmetry, distance, gapMm, qRange, lverOffset, lhorOffset) {
   var lut = new Float32Array(LUT_SIZE);
-  var p = puLutParams(symmetry, distance, gapMm, qRange, lverOffset);
+  var p = puLutParams(symmetry, distance, gapMm, qRange, lverOffset, lhorOffset);
   var dq = 2 * p.qr / (LUT_SIZE - 1);
 
   // Compute Bz at each sample point
@@ -982,7 +998,7 @@ function computePickupLUT(symmetry, distance, gapMm, qRange, lverOffset) {
   lut[0] = (Bz[1] - Bz[0]) / dq;
   lut[LUT_SIZE - 1] = (Bz[LUT_SIZE - 1] - Bz[LUT_SIZE - 2]) / dq;
 
-  // Reference normalization: same convention as dipole (g'(0) at ref = 0.7)
+  // 2026-04-23 B-1 試行 revert: per-key normalize は逆効果。固定 refPeak に戻す。
   var refBzP = cylinderBz(0.25, 0.15 + dq * 0.5, CYL_A, CYL_H);
   var refBzM = cylinderBz(0.25, 0.15 - dq * 0.5, CYL_A, CYL_H);
   var refPeak = Math.abs((refBzP - refBzM) / dq);
@@ -996,9 +1012,9 @@ function computePickupLUT(symmetry, distance, gapMm, qRange, lverOffset) {
 // --- Horizontal (radial) gradient LUT for 2D whirling ---
 // Computes g'_h(q) = dBz/dρ at (ρ=Lhor, z=Lver+q).
 // The tine's horizontal motion across the pole face creates EMF via this gradient.
-function computePickupLUT_horizontal(symmetry, distance, gapMm, qRange, lverOffset) {
+function computePickupLUT_horizontal(symmetry, distance, gapMm, qRange, lverOffset, lhorOffset) {
   var lut = new Float32Array(LUT_SIZE);
-  var p = puLutParams(symmetry, distance, gapMm, qRange, lverOffset);
+  var p = puLutParams(symmetry, distance, gapMm, qRange, lverOffset, lhorOffset);
   var drho = p.Lhor * 0.001;  // small perturbation for numerical derivative
   if (drho < 1e-6) drho = 1e-6;
 
@@ -1010,7 +1026,7 @@ function computePickupLUT_horizontal(symmetry, distance, gapMm, qRange, lverOffs
     lut[i] = (BzP - BzM) / (2 * drho);
   }
 
-  // Use same reference scale as vertical LUT for consistent physics
+  // 2026-04-23 B-1 試行 revert: per-key normalize は逆効果。固定 refPeak に戻す。
   var dq = 2 * p.qr / (LUT_SIZE - 1);
   var refBzP = cylinderBz(0.25, 0.15 + dq * 0.5, CYL_A, CYL_H);
   var refBzM = cylinderBz(0.25, 0.15 - dq * 0.5, CYL_A, CYL_H);
@@ -2297,6 +2313,9 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     //   v4: 0.5 — still too much distortion.
     //   v5: 0.65 — "歪むちょっと前" = just before distortion onset.
     //   DI should be clean so amp adds distortion only on accents.
+    // 2026-04-23 A-3 試行 (pow 0.8): 音量逆U字に部分効果 (両端 +0.7-0.9 dB)
+    //   だが逆U字構造は残存。LUT normalize 相殺が支配。v2 (pow 0.15) に revert。
+    //   詳細: notes/permanent/2026/Rhodes物理モデリングの音量逆U字は...
     var qRange = Math.pow(tipFactor, 0.15) * 0.65;
     if (qRange < 0.12) qRange = 0.12;
     if (qRange > 0.8) qRange = 0.8;
@@ -2307,15 +2326,16 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.vQRange[vi] = qRange;
     this.vPosScale[vi] = omega0 / Math.max(vA_fund, 0.01);
     var lverOff = (midi >= 0 && midi < 128) ? KEY_VARIATION[midi * 3] : 0;
+    var lhorOff = (midi >= 0 && midi < 128) ? KEY_VARIATION[midi * 3 + 1] : 0;
     if (this.pickupType === 'wurlitzer') {
       this.vPuLUT[vi] = computePickupLUT_Wurlitzer(this.pickupDistance);
       this.vPuLUT_h[vi] = null; // no whirling for Wurlitzer (electrostatic, symmetric)
     } else if (this.puModel === 'dipole') {
-      this.vPuLUT[vi] = computePickupLUT_dipole(this.pickupSymmetry, this.pickupDistance, gapMm, qRange, lverOff);
+      this.vPuLUT[vi] = computePickupLUT_dipole(this.pickupSymmetry, this.pickupDistance, gapMm, qRange, lverOff, lhorOff);
       this.vPuLUT_h[vi] = null; // dipole has no horizontal LUT
     } else {
-      this.vPuLUT[vi] = computePickupLUT(this.pickupSymmetry, this.pickupDistance, gapMm, qRange, lverOff);
-      this.vPuLUT_h[vi] = computePickupLUT_horizontal(this.pickupSymmetry, this.pickupDistance, gapMm, qRange, lverOff);
+      this.vPuLUT[vi] = computePickupLUT(this.pickupSymmetry, this.pickupDistance, gapMm, qRange, lverOff, lhorOff);
+      this.vPuLUT_h[vi] = computePickupLUT_horizontal(this.pickupSymmetry, this.pickupDistance, gapMm, qRange, lverOff, lhorOff);
     }
 
     // --- 2D Whirling: horizontal fundamental oscillator ---

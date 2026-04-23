@@ -40,6 +40,32 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
+## [2026-04-23] {pending-sha} — A-1 lhorOffset feed + A/B 試行履歴コメント追記 (音量逆U字解消は情報不足で不可能と確定)
+
+### Fix
+- **A-1**: `puLutParams` に `lhorOffset` 引数追加、`KEY_VARIATION[midi*3+1]` を feed (Codex 2026-04-07 sync miss 解消)。効果 ±0.1 dB、per-key random individual variation として保持 (物理モデル正確化)
+- `computePickupLUT` / `computePickupLUT_dipole` / `computePickupLUT_horizontal` 全 3 関数に pass-through
+
+### Doc (未実装の試行履歴コメント)
+- `puGapMm` に A-2 試行履歴追記 (0.60/0.80/0.85/0.90mm 測定、音量差 ±0.3 dB、v2 1.1mm taper に revert)
+- `computeTineAmplitude` の `* 0.12` に A-4 試行履歴追記 (per-key 0.12-0.18 curve、両端 +0.8-1.0 dB、peak 副作用、0.12 固定 revert)
+- `qRange` 近傍に A-3 試行履歴追記 (pow 0.8、両端 +0.7-0.9 dB、pow 0.15 revert)
+- 3 LUT 関数の normalize に B-1 試行履歴追記 (per-key max(|lut|)、逆効果 -3〜-4 dB、固定 refPeak revert)
+
+### 背景 (Codex/Gemini 外部監査 2026-04-23 + urinami 方針)
+- PU 前段 (gap/qRange/tineScale/lhorOffset/alphaNorm) の per-key 調整では音量逆 U 字解消不可 (A-1〜A-4 + B-1 完全潰し)
+- PU 磁力 absolute 不明 + hammer 材質粘弾性不明 + spring mass 情報不足で原理的に不可能
+- 詳細: [[notes/permanent/2026/Rhodes物理モデリングの音量逆U字はPU前段のper-key調整では解消できずLUT正規化が rate-limiting である]]
+- phase-0 trials log: `プロジェクト/PAD DAW/phase-0_per-key-amplitude-trials-2026-04-23.md`
+
+### 次の軸 (未実装)
+- `tools/fdtd_output/tuning_mass_88_nes.json` に FDTD 計算済み per-key tuning mass 存在、**DSP 未組み込み** (次 commit で実装予定)
+
+### Consumer 対応
+- A-1 lhorOffset feed は既存 consumer (64PE / MRC) 影響なし (default undefined で従来動作)
+- 試行コメント追記のみ、機能変更なし
+
+
 ## [2026-04-23] ac44244 — Phase 4 J-A wet/dry blend 配線 (jaWetMix default 0 = bypass)
 
 ### Feature
