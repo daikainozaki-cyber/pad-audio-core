@@ -40,6 +40,29 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
+## [2026-04-23] {pending-sha} — B-2 revert (urinami 耳判定「低音が弱いという印象しかない」)
+
+### Revert
+- `computeTineAmplitude` の `A_raw *= tipMassFactor` 乗算を無効化（コメントアウト）
+- `TUNING_MASS_G` テーブル / `tuningMassKg()` / `m_eff` / `tipMassFactor` 計算は**保持**（C 軸で再組み込み可能な形）
+
+### 背景
+- 56c0567 で物理的に正しい tuning mass 補正を統合、Gemini 外部レビュー PASS
+- しかし urinami 耳判定: 「低音が弱いという印象しかない」→ 音色で net 負
+- 方針: 「音色でやって物理を探せるのが理想。無理なら耳優先」(urinami 2026-04-23)
+- 永続ノート [[物理モデリングの優先順位は物理の構造ではなく知覚の重み付けで決まる]] と整合
+
+### 残っている認識
+- 物理モデルとしては B-2 は正しい (m_tip が重い bass の displacement は √(m) で減衰)
+- 単独では逆U字を悪化させるだけ → C-1 (qRange 物理幾何) + C-2 (LUT 正規化 rework) と**同時**でないと意味を持たない
+- 次の実装時に再有効化の判断をする
+
+### Consumer 対応
+- B-2 乗算無効化で、23f81cc 以前 (0d5dc82) の挙動に戻る
+- API 変更なし
+
+---
+
 ## [2026-04-23] 56c0567 — B-2: FDTD tuning mass (88 keys) を DSP に統合 (treble 逆U字尾部を +1-2 dB 改善)
 
 ### Feature

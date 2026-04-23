@@ -729,25 +729,25 @@ function computeTineAmplitude(midi, velocity) {
     TINE_M_EFF_A4 = mBeamA4 + tuningMassKg(69);
   }
 
-  // --- 2026-04-23 Phase B-2: per-key tip tuning mass correction ---
-  // Physics: impulse-driven SHM amplitude A = J / √(m_eff · k_eff). Previous
-  // formula ignored m_tip (solder + screws) even though FDTD-inverted values
-  // (tools/fdtd_output/tuning_mass_88_nes.json) were available since 2026-03-26.
-  //   m_beam_eff(midi) = (33/140)·ρ·A·L(midi)
-  //   m_eff(midi)      = m_beam_eff + tuningMassKg(midi)
-  //   tipMassFactor    = √(m_eff_A4 / m_eff(midi))  (A4 unchanged → preserves tineScale)
+  // --- 2026-04-23 Phase B-2: per-key tip tuning mass correction (REVERTED) ---
+  // Physics: impulse-driven SHM amplitude A = J / √(m_eff · k_eff). Computation
+  // kept live (m_eff / tipMassFactor) so future C-axis work can re-enable via a
+  // config flag — data table TUNING_MASS_G and tuningMassKg() remain embedded.
   // Measured vs (no-factor) baseline at vel=110 (Suitcase + urinami v1):
   //   C1 (24): -2.47 dB  E1 (40): +0.92  E2 (52): -0.63  C4 (60): -0.95
   //   E3 (64): -0.16     C5 (72): +0.24  C6 (84): +0.97  E5 (88): +2.10
-  // → treble inverse-U tail HELPED (+1–2 dB C6/E5), extreme bass C1 hurt by
-  //   −2.5 dB (heavy m_tip 8.7g reduces displacement as √(m_A4/m)). Partial win.
-  //   詳細: notes/permanent/2026/Rhodes物理モデリングの音量逆U字は...
+  // Reverted (urinami 2026-04-23 ear verdict): "低音が弱いという印象しかない".
+  // Physics was correct (Gemini external review PASS) but C1 −2.5 dB killed
+  // bass perception for urinami. Per her directive "音色でやって、物理を探せ
+  // るのが理想。無理なら耳優先" → ear wins. Multiplication disabled.
+  // 詳細: notes/permanent/2026/Rhodes物理モデリングの音量逆U字は...
   var mBeamEff = (33.0 / 140.0) * TINE_RHO * TINE_A * L_m;
   var mEff = mBeamEff + tuningMassKg(midi);
   var tipMassFactor = (mEff > 0 && TINE_M_EFF_A4 > 0)
     ? Math.sqrt(TINE_M_EFF_A4 / mEff)
     : 1.0;
-  A_raw *= tipMassFactor;
+  // A_raw *= tipMassFactor;  // DISABLED — see above. Re-enable only with
+  // simultaneous C-1/C-2 (qRange geometry + LUT normalize rework).
   // 2026-04-10: alphaNorm REMOVED (was physically backwards).
   //   Previous (2026-04-06) coupled alpha_max (Hertz contact deformation) as a
   //   multiplier on tine amplitude. This was wrong:
