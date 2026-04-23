@@ -696,8 +696,15 @@ function computeTineAmplitude(midi, velocity) {
   var escDynamic = escMm / 7.94; // 1.0 at bass, 0.2 at treble
   var velScaled = Math.pow(velocity, 1.0 / (0.5 + 0.5 * escDynamic));
 
-  // Raw amplitude: √(m / k) × √(velScaled) × φ — different for every key
-  var A_raw = Math.sqrt(m_hammer / k_eff) * Math.sqrt(velScaled) * phi;
+  // --- 2026-04-23 D-1: velScaled 線形化 ---
+  // 旧: A_raw = √(m/k) × √velScaled × φ (sqrt が DR を半分に圧縮)
+  // 新: A_raw = √(m/k) × velScaled × φ (hammer velocity → tine amplitude 線形、物理)
+  // 根拠: v_tine = 2·m_hammer·v_hammer/(m_hammer+m_tine) (線形)、A = v_tine/ω (線形)
+  // urinami 2026-04-23「強く弾くと潰れる、そうでないものはちゃんとレンジがある、
+  //   本当は物理で解決できたらいいんだよね」→ sqrt による artificial 圧縮を外す。
+  // 効果: v=1.0 (ff) では TINE_A4_RAW 基準で変化なし。v<1 は新しく線形で減衰 →
+  //   pp/mf が適切に静かになり pp→ff の DR が拡大する方向。
+  var A_raw = Math.sqrt(m_hammer / k_eff) * velScaled * phi;
 
   // 2026-04-06: couple hammer compliance (alphaMax) into displacement.
   // Codex audit: K_H varies 10-15x (Shore 30→wood) but was NOT in this path.
