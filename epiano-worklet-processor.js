@@ -2376,7 +2376,11 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     //   一定になるため refPeak normalize の per-key 相殺副作用が消える。
     //   永続ノート [[PU LUTのqRange正規化はPU非線形の鍵域差を消滅させバスの
     //   ファット感とトレブルのクリーンさを同時に破壊する]] (2026-04-01) の処方を実装。
-    var qRange = 0.5;
+    //
+    // 2026-04-24: 0.5 → 0.45 (urinami「低音はもうちょっとファットでいい」)。
+    //   bass tinePos 0.35 → puInput 0.78 (LUT 78% = 深く非線形ゾーンへ到達、
+    //   edge clip は 0.35/0.45=0.78 で safety margin あり)。
+    var qRange = 0.45;
     // Position scale factor: converts velocity-based position to old displacement scale.
     // Old: tinePosition = 1.0 × sin × envScale (displacement domain)
     // New: tinePosition = (vA_fund/ω₀) × sin × envScale (velocity/ω domain)
