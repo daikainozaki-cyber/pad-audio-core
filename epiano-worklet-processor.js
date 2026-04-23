@@ -3154,7 +3154,10 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
         // Keep the effect bus pre-level-match. DI loudness compensation should
         // not overdrive the spring send/return path.
         mainOut = (diSum / HARP_PARALLEL_DIV);
-        finalOutputGain = 2.25; // level-match to Pad Sensei MK1 Suitcase
+        // 2026-04-24: C-2 後 LUT output が大きくなった分、Stage の finalOutputGain を
+        // 2.25 → 0.9 に減。旧 2.25 は velocity mult 時代の level 補償で、C-2 で PU
+        // 段出力が増えた今は過剰 (urinami 2026-04-24「Stage は結構歪む」指摘)。
+        finalOutputGain = 0.9;
       }
 
       // Tine radiation: delayed by mic distance (2ms) for natural phase relationship
