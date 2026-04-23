@@ -3154,10 +3154,10 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
         // Keep the effect bus pre-level-match. DI loudness compensation should
         // not overdrive the spring send/return path.
         mainOut = (diSum / HARP_PARALLEL_DIV);
-        // 2026-04-24: C-2 後 LUT output が大きくなった分、Stage の finalOutputGain を
-        // 2.25 → 0.7 に減 (urinami 耳判定 2 回目で 0.7 に確定)。
-        // 旧 2.25 は velocity mult 時代の level 補償、C-2 で PU 段出力が増えた今は過剰。
-        finalOutputGain = 0.7;
+        // 2026-04-24: LUT scale 半減 (400/4 → 200/2, -6 dB) + 過去 2.25 過剰だった分を
+        // 補整して 1.4 に着地。urinami 遷移: 2.25 (歪む) → 0.9 → 0.7 (level match) →
+        // 全体音量小さすぎ → **1.4** (LUT 半減補償 +6 dB、Suitcase は MAKEUP で別途)。
+        finalOutputGain = 1.4;
       }
 
       // Tine radiation: delayed by mic distance (2ms) for natural phase relationship
