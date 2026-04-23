@@ -3008,6 +3008,10 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
       var mainOut;
       var finalOutputGain = 1.0;
 
+      // 2026-04-24: Suitcase を Stage の 2x にする (urinami 耳判定)。
+      // LUT scale 半減後の絶対 level 補償 + Suitcase の saturator 圧縮分も含む。
+      var SUITCASE_FINAL_GAIN = 2.0;
+
       if (this.useCabinet) {
         var ampSig;
 
@@ -3149,15 +3153,15 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
         }
 
         mainOut = ampSig * this.cabinetGain;
+        // 2026-04-24: Suitcase は Stage の約 2x (urinami「Suitcase 2倍でいい」)
+        finalOutputGain = SUITCASE_FINAL_GAIN;
       } else {
         // === DI PATH: no cable LCR, transparent output ===
         // Keep the effect bus pre-level-match. DI loudness compensation should
         // not overdrive the spring send/return path.
         mainOut = (diSum / HARP_PARALLEL_DIV);
-        // 2026-04-24: LUT scale 半減 (400/4 → 200/2, -6 dB) + 過去 2.25 過剰だった分を
-        // 補整して 1.4 に着地。urinami 遷移: 2.25 (歪む) → 0.9 → 0.7 (level match) →
-        // 全体音量小さすぎ → **1.4** (LUT 半減補償 +6 dB、Suitcase は MAKEUP で別途)。
-        finalOutputGain = 1.4;
+        // 2026-04-24: Stage 0.7 で urinami 耳判定確定。
+        finalOutputGain = 0.7;
       }
 
       // Tine radiation: delayed by mic distance (2ms) for natural phase relationship
