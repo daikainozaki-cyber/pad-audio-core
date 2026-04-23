@@ -1015,7 +1015,7 @@ function computePickupLUT_dipole(symmetry, distance, gapMm, qRange, lverOffset, 
   // (永続ノート [[PU LUTのqRange正規化はPU非線形の鍵域差を消滅させ...]] 2026-04-01)。
   // C-1 で qRange を幾何固定化した上で、normalize も一律 scale にして per-key LUT
   // shape 差をそのまま下流に伝える。scale 値は従来の A4 相当付近で calibrate。
-  var DIPOLE_LUT_SCALE = 400; // C-2 第 2 版: saturator 突入を避け DR 保持
+  var DIPOLE_LUT_SCALE = 200; // C-2 第 3 版: urinami 耳判定「歪む」で更に半減、PU LUT edge 当たりを避ける
   for (var i = 0; i < LUT_SIZE; i++) lut[i] *= DIPOLE_LUT_SCALE;
   return lut;
 }
@@ -1054,7 +1054,7 @@ function computePickupLUT(symmetry, distance, gapMm, qRange, lverOffset, lhorOff
   lut[LUT_SIZE - 1] = (Bz[LUT_SIZE - 1] - Bz[LUT_SIZE - 2]) / dq;
 
   // 2026-04-23 C-2: 固定 refPeak normalize を一律 constant scale に置換 (上記と同方針)。
-  var CYL_LUT_SCALE = 4; // C-2 第 2 版: saturator 突入を避け DR 保持
+  var CYL_LUT_SCALE = 2; // C-2 第 3 版: urinami 耳判定「歪む」で更に半減
   for (var i = 0; i < LUT_SIZE; i++) lut[i] *= CYL_LUT_SCALE;
   return lut;
 }
@@ -1077,7 +1077,7 @@ function computePickupLUT_horizontal(symmetry, distance, gapMm, qRange, lverOffs
   }
 
   // 2026-04-23 C-2: horizontal LUT も一律 constant scale (垂直と同じ方針)。
-  var CYL_H_LUT_SCALE = 4;
+  var CYL_H_LUT_SCALE = 2;
   for (var i = 0; i < LUT_SIZE; i++) lut[i] *= CYL_H_LUT_SCALE;
   return lut;
 }
