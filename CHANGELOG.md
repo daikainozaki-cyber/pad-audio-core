@@ -40,7 +40,7 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
-## [2026-04-23] {pending-sha} — B-2 revert (urinami 耳判定「低音が弱いという印象しかない」)
+## [2026-04-23] b03274f — B-2 revert (urinami 耳判定「低音が弱いという印象しかない」)
 
 ### Revert
 - `computeTineAmplitude` の `A_raw *= tipMassFactor` 乗算を無効化（コメントアウト）
