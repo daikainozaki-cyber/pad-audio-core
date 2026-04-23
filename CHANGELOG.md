@@ -40,6 +40,32 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
+
+## [2026-04-23] 9d7d857 — D-1: velScaled 線形化 (DR 3→18 dB 改善、物理に忠実化)
+
+### Feature
+- `computeTineAmplitude` の A_raw を `√velScaled` から `velScaled` 線形に変更
+- 物理根拠: hammer → tine 運動量伝達は v_hammer に線形、A = v_tine/ω も線形
+
+### 測定 (velocity 0-1 正規化、drive=5.0、urinami v1 voicing)
+| Note | MIDI | old (sqrt) | D-1 linear | Δ |
+|------|-----:|----------:|-----------:|---:|
+| E1 | 40 | 7.8 dB | 15.5 dB | +7.7 |
+| C4 | 60 | 5.0 dB | 17.8 dB | +12.8 |
+| E3 | 64 | 3.8 dB | **18.4 dB** | +14.6 |
+| C6 | 84 | 3.2 dB | **18.4 dB** | +15.2 |
+
+### 副次発見 (根本的ミス)
+- 従来の per-key 音量測定 spec は `noteOn(midi, 110)` で **raw MIDI 0-127** を渡しとった
+- worklet は 0-1 期待 (keyboard.js: `noteOn(midi, 0.8)`)
+- 旧 sqrt が 11x 増幅を partially mask していたため「動く」ように見えとった
+- **全 A/B 試行 (per-key 逆U字) は saturated state で測定されとった可能性高い**
+
+### Consumer
+- A_raw の変化: v=1.0 で同じ、v<1 で物理的により静か (pp→ff レンジ拡大)
+- 絶対音量は ff ほぼ同等、pp はより小さく聞こえる
+- makeup gain / Tone Balance 再調整が必要な場合あり
+
 ## [2026-04-23] b03274f — B-2 revert (urinami 耳判定「低音が弱いという印象しかない」)
 
 ### Revert
