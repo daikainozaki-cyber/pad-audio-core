@@ -114,7 +114,7 @@ function noteOn(midi, velocity, outputGain, _retries) {
     if (sat.cleanup) sat.cleanup();
     _retries = _retries || 0;
     if (_retries < 3) {
-      setTimeout(() => noteOn(midi, velocity, poly, _retries + 1), 100);
+      setTimeout(() => noteOn(midi, velocity, outputGain, _retries + 1), 100);
     }
     return;
   }
@@ -258,6 +258,6 @@ window.addEventListener('blur', () => {
 });
 
 function playMidiNotes(midiNotes) {
-  midiNotes.forEach(m => noteOn(m, undefined, true)); // poly=true for chords
+  midiNotes.forEach(m => noteOn(m, undefined, 1.0)); // chord: default outputGain=1.0
   setTimeout(() => { midiNotes.forEach(m => noteOff(m)); }, 600);
 }
