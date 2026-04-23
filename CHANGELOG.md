@@ -40,7 +40,7 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
-## [2026-04-23] {pending-sha} — A-1 lhorOffset feed + A/B 試行履歴コメント追記 (音量逆U字解消は情報不足で不可能と確定)
+## [2026-04-23] 8969774 — A-1 lhorOffset feed + A/B 試行履歴コメント追記 (音量逆U字解消は情報不足で不可能と確定)
 
 ### Fix
 - **A-1**: `puLutParams` に `lhorOffset` 引数追加、`KEY_VARIATION[midi*3+1]` を feed (Codex 2026-04-07 sync miss 解消)。効果 ±0.1 dB、per-key random individual variation として保持 (物理モデル正確化)
