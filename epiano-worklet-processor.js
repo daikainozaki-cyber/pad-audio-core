@@ -3008,9 +3008,11 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
       var mainOut;
       var finalOutputGain = 1.0;
 
-      // 2026-04-24: Suitcase を Stage の 2x にする (urinami 耳判定)。
-      // LUT scale 半減後の絶対 level 補償 + Suitcase の saturator 圧縮分も含む。
-      var SUITCASE_FINAL_GAIN = 2.0;
+      // 2026-04-24: Suitcase finalOutputGain 遷移。
+      // 2.0 → **0.5** (urinami「デカすぎ、0.5 くらいかな」で着地)。
+      // Voicing Lab (DRIVE 2.5 × MAKEUP 1.5 × PRE-TRIM 0.42 ≈ 1.575) と積むと
+      // 合計 ≈ 0.79、Stage (0.7 × 1/HARP_PARALLEL_DIV) 比で約 3.4x。
+      var SUITCASE_FINAL_GAIN = 0.5;
 
       if (this.useCabinet) {
         var ampSig;
