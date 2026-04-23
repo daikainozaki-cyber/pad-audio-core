@@ -3155,9 +3155,9 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
         // not overdrive the spring send/return path.
         mainOut = (diSum / HARP_PARALLEL_DIV);
         // 2026-04-24: C-2 後 LUT output が大きくなった分、Stage の finalOutputGain を
-        // 2.25 → 0.9 に減。旧 2.25 は velocity mult 時代の level 補償で、C-2 で PU
-        // 段出力が増えた今は過剰 (urinami 2026-04-24「Stage は結構歪む」指摘)。
-        finalOutputGain = 0.9;
+        // 2.25 → 0.7 に減 (urinami 耳判定 2 回目で 0.7 に確定)。
+        // 旧 2.25 は velocity mult 時代の level 補償、C-2 で PU 段出力が増えた今は過剰。
+        finalOutputGain = 0.7;
       }
 
       // Tine radiation: delayed by mic distance (2ms) for natural phase relationship
