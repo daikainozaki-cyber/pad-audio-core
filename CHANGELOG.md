@@ -40,7 +40,7 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
-## [2026-04-23] {pending-sha} — B-2: FDTD tuning mass (88 keys) を DSP に統合 (treble 逆U字尾部を +1-2 dB 改善)
+## [2026-04-23] 56c0567 — B-2: FDTD tuning mass (88 keys) を DSP に統合 (treble 逆U字尾部を +1-2 dB 改善)
 
 ### Feature
 - **B-2**: `computeTineAmplitude` に per-key tip tuning mass 物理を追加。`TUNING_MASS_G` (Float32Array 128) を埋め込み、`tuningMassKg(midi)` 経由で m_eff = m_beam_eff + m_tip を計算、`tipMassFactor = √(m_eff_A4 / m_eff)` を A_raw に乗算 (A4 固定 → tineScale 保持)
