@@ -215,10 +215,10 @@ function epianoWorkletUpdateParams(params) {
 // NOTE ON / OFF
 // ========================================
 
-function epianoWorkletNoteOn(ctx, midi, velocity, masterDest) {
+function epianoWorkletNoteOn(ctx, midi, velocity, masterDest, outputGain) {
   if (!_epw_initialized) {
     epianoWorkletInit(ctx, masterDest).then(function() {
-      epianoWorkletNoteOn(ctx, midi, velocity, masterDest);
+      epianoWorkletNoteOn(ctx, midi, velocity, masterDest, outputGain);
     });
     return { cancel: function() {} };
   }
@@ -231,6 +231,7 @@ function epianoWorkletNoteOn(ctx, midi, velocity, masterDest) {
     type: 'noteOn',
     midi: midi,
     velocity: velocity,
+    outputGain: (outputGain !== undefined) ? outputGain : 1.0,
   });
 
   // Return cancel function (for noteOff / damper)

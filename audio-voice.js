@@ -68,8 +68,9 @@ function toggleSoundMute() {
   saveSoundSettings();
 }
 
-function noteOn(midi, velocity, poly, _retries) {
+function noteOn(midi, velocity, outputGain, _retries) {
   velocity = velocity || 0.8;
+  if (outputGain === undefined) outputGain = 1.0;
   if (_soundMuted) return;
   ensureAudioResumed();
   _hidePadHint();
@@ -98,7 +99,7 @@ function noteOn(midi, velocity, poly, _retries) {
     // DI mode → effects chain (epianoDirectOut). Amp mode → masterBus direct (epianoAmpOut).
     var epDest = (epPreset && epPreset.useCabinet) ? epianoAmpOut : epianoDirectOut;
     envelope = _useEpianoWorklet
-      ? epianoWorkletNoteOn(audioCtx, midi, velocity, epDest)
+      ? epianoWorkletNoteOn(audioCtx, midi, velocity, epDest, outputGain)
       : epianoNoteOn(audioCtx, midi, velocity, epianoDirectOut);
   } else if (AudioState.instrument.sampler) {
     envelope = _samplerNoteOn(AudioState.instrument.sampler, midi, velocity, sat.input);

@@ -1009,17 +1009,14 @@ function computePickupLUT_dipole(symmetry, distance, gapMm, qRange, lverOffset, 
     var r5 = r2 * r2 * Math.sqrt(r2);
     lut[i] = -3.0 * d / r5;
   }
-  // 2026-04-23 B-1 試行 revert: per-key normalize は逆効果 (低音 -3〜-4 dB 悪化)。
-  // 固定 refPeak は逆に低音 LUT を part boost していた側で、外すと赤字露呈。
-  // 詳細: notes/permanent/2026/Rhodes物理モデリングの音量逆U字は...
-  var refLver = 0.15, refLhor = 0.25;
-  var refR2 = refLhor * refLhor + refLver * refLver + Rp2;
-  var refR5 = refR2 * refR2 * Math.sqrt(refR2);
-  var refPeak = Math.abs(-3.0 * refLver / refR5);
-  if (refPeak > 0) {
-    var scale = 0.7 / refPeak;
-    for (var i = 0; i < LUT_SIZE; i++) lut[i] *= scale;
-  }
+  // 2026-04-23 C-2 (D-1 後): 固定 refPeak normalize を**一律 constant scale** に置換。
+  // 従来 `0.7/refPeak` は (固定) reference geometry で evaluate した値で全 LUT を
+  // 正規化していたため、per-key gap/qRange から生まれる LUT 出力差が消失しとった
+  // (永続ノート [[PU LUTのqRange正規化はPU非線形の鍵域差を消滅させ...]] 2026-04-01)。
+  // C-1 で qRange を幾何固定化した上で、normalize も一律 scale にして per-key LUT
+  // shape 差をそのまま下流に伝える。scale 値は従来の A4 相当付近で calibrate。
+  var DIPOLE_LUT_SCALE = 400; // C-2 第 2 版: saturator 突入を避け DR 保持
+  for (var i = 0; i < LUT_SIZE; i++) lut[i] *= DIPOLE_LUT_SCALE;
   return lut;
 }
 
@@ -1056,14 +1053,9 @@ function computePickupLUT(symmetry, distance, gapMm, qRange, lverOffset, lhorOff
   lut[0] = (Bz[1] - Bz[0]) / dq;
   lut[LUT_SIZE - 1] = (Bz[LUT_SIZE - 1] - Bz[LUT_SIZE - 2]) / dq;
 
-  // 2026-04-23 B-1 試行 revert: per-key normalize は逆効果。固定 refPeak に戻す。
-  var refBzP = cylinderBz(0.25, 0.15 + dq * 0.5, CYL_A, CYL_H);
-  var refBzM = cylinderBz(0.25, 0.15 - dq * 0.5, CYL_A, CYL_H);
-  var refPeak = Math.abs((refBzP - refBzM) / dq);
-  if (refPeak > 0) {
-    var scale = 0.7 / refPeak;
-    for (var i = 0; i < LUT_SIZE; i++) lut[i] *= scale;
-  }
+  // 2026-04-23 C-2: 固定 refPeak normalize を一律 constant scale に置換 (上記と同方針)。
+  var CYL_LUT_SCALE = 4; // C-2 第 2 版: saturator 突入を避け DR 保持
+  for (var i = 0; i < LUT_SIZE; i++) lut[i] *= CYL_LUT_SCALE;
   return lut;
 }
 
@@ -1084,15 +1076,9 @@ function computePickupLUT_horizontal(symmetry, distance, gapMm, qRange, lverOffs
     lut[i] = (BzP - BzM) / (2 * drho);
   }
 
-  // 2026-04-23 B-1 試行 revert: per-key normalize は逆効果。固定 refPeak に戻す。
-  var dq = 2 * p.qr / (LUT_SIZE - 1);
-  var refBzP = cylinderBz(0.25, 0.15 + dq * 0.5, CYL_A, CYL_H);
-  var refBzM = cylinderBz(0.25, 0.15 - dq * 0.5, CYL_A, CYL_H);
-  var refPeak = Math.abs((refBzP - refBzM) / dq);
-  if (refPeak > 0) {
-    var scale = 0.7 / refPeak;
-    for (var i = 0; i < LUT_SIZE; i++) lut[i] *= scale;
-  }
+  // 2026-04-23 C-2: horizontal LUT も一律 constant scale (垂直と同じ方針)。
+  var CYL_H_LUT_SCALE = 4;
+  for (var i = 0; i < LUT_SIZE; i++) lut[i] *= CYL_H_LUT_SCALE;
   return lut;
 }
 
@@ -1296,6 +1282,13 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
 
     // Tine amplitude (velocity-derived)
     this.vTineAmp      = new Float32Array(MAX_VOICES);
+
+    // 2026-04-23: per-voice output gain (Tone Balance EQ、velocity 経路から分離)。
+    // midi-input.js の `vel *= toneBalanceLinear(note)` が pp 表現を焼き消しとった
+    // 問題の修正 ([[エレピの per-octave Tone Balance を velocity 乗算で実装すると...]])
+    // _noteOn で outputGain を受け取り、process() の couplingOut 直後に乗算する。
+    this.vOutputGain   = new Float32Array(MAX_VOICES);
+    for (var vogi = 0; vogi < MAX_VOICES; vogi++) this.vOutputGain[vogi] = 1.0;
 
     // Per-voice tip displacement factor (register-dependent physical amplitude scaling).
     this.vTipFactor    = new Float32Array(MAX_VOICES);
@@ -1932,7 +1925,7 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     if (!msg) return;
 
     if (msg.type === 'noteOn') {
-      this._noteOn(msg.midi, msg.velocity);
+      this._noteOn(msg.midi, msg.velocity, msg.outputGain);
     } else if (msg.type === 'noteOff') {
       this._noteOff(msg.midi);
     } else if (msg.type === 'sustain') {
@@ -2048,7 +2041,7 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     }
   }
 
-  _noteOn(midi, velocity) {
+  _noteOn(midi, velocity, outputGain) {
     var fs = this.fs;
 
     // Find free voice or steal oldest
@@ -2374,9 +2367,16 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     // 2026-04-23 A-3 試行 (pow 0.8): 音量逆U字に部分効果 (両端 +0.7-0.9 dB)
     //   だが逆U字構造は残存。LUT normalize 相殺が支配。v2 (pow 0.15) に revert。
     //   詳細: notes/permanent/2026/Rhodes物理モデリングの音量逆U字は...
-    var qRange = Math.pow(tipFactor, 0.15) * 0.65;
-    if (qRange < 0.12) qRange = 0.12;
-    if (qRange > 0.8) qRange = 0.8;
+    //
+    // 2026-04-23 C-1/C-2 (D-1 velocity 線形化後): qRange を物理幾何固定値に。
+    //   コメント上部の記述と整合: "PU nonlinear region width is set by AlNiCo
+    //   pole radius (Rp≈6.35mm), NOT by tine displacement."
+    //   tipFactor 依存 (pow 0.15) を廃止。0.5 = 12.5mm 幅、bass tineAmp ~0.35
+    //   を十分含み treble は linear 域に留まる。C-2 は自動達成: qRange が per-key
+    //   一定になるため refPeak normalize の per-key 相殺副作用が消える。
+    //   永続ノート [[PU LUTのqRange正規化はPU非線形の鍵域差を消滅させバスの
+    //   ファット感とトレブルのクリーンさを同時に破壊する]] (2026-04-01) の処方を実装。
+    var qRange = 0.5;
     // Position scale factor: converts velocity-based position to old displacement scale.
     // Old: tinePosition = 1.0 × sin × envScale (displacement domain)
     // New: tinePosition = (vA_fund/ω₀) × sin × envScale (velocity/ω domain)
@@ -2472,6 +2472,8 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.vActive[vi] = 1;
     this.vMidi[vi] = midi;
     this.vAge[vi] = 0;
+    // Tone Balance (per-octave EQ) を voice 出力 gain として保持。未指定で 1.0 (バイパス)。
+    this.vOutputGain[vi] = (outputGain !== undefined && outputGain > 0) ? outputGain : 1.0;
   }
 
   _setSustain(on) {
@@ -2941,7 +2943,10 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
           this.vCouplingState[stateOff + 1] = b2 * puOut - a2 * couplingOut;
         }
 
-        var sig = couplingOut;
+        // 2026-04-23 Tone Balance fix: per-voice output gain を PU/coupling 後に乗算。
+        // midi-input.js の velocity 乗算 (pp 表現潰し) から分離されて voice 出力段で適用。
+        // amp/DI 両経路に一律に効く。pp の物理スケーリングは保たれる。
+        var sig = couplingOut * this.vOutputGain[v];
 
         if (this.useCabinet) {
 
