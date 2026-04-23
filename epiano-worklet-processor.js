@@ -635,6 +635,34 @@ var TINE_RHO = 7850;   // kg/m³ (ASTM A228 spring steel)
 var TINE_D = 0.001905;  // m (tine diameter, uniform for Original stage)
 var TINE_A = Math.PI * (TINE_D / 2) * (TINE_D / 2); // cross-section area
 
+// --- Per-key tip tuning mass (solder + screws) in grams ---
+// Source: tools/fdtd_output/tuning_mass_88_nes.json (FDTD inversion, NES coupling).
+// Entries at MIDI 21..108, else 0. Real Rhodes tines have solder blobs and screws
+// that dominate the effective tip mass (see permanent note "Rhodesのチューニング質量
+// はスプリングワイヤーではなくハンダとネジが支配する"). Used to compute m_eff for
+// amplitude scaling — the axis that was sync-missed until 2026-04-23.
+var TUNING_MASS_G = new Float32Array([
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 12.656, 10.781, 10,
+  8.672, 7.344, 6.094, 5.078, 10.414, 8.312, 6.418, 4.98, 3.516, 2.688, 7.875, 2.457,
+  2.375, 2.375, 2.313, 2.063, 2.219, 1.969, 2, 2.125, 1.906, 2.157, 4.13, 4.781,
+  6.07, 5.578, 5.381, 5.332, 5.414, 5.025, 5.25, 5.797, 5.176, 5.566, 6.123, 5.438,
+  6.109, 5.812, 4.731, 4.865, 5.141, 4.762, 3.998, 4.131, 3.911, 4.125, 3.863, 3.266,
+  3.023, 3.275, 3.035, 2.461, 3.161, 2.482, 2.322, 2.482, 2.082, 1.938, 2.07, 1.719,
+  1.602, 1.758, 1.641, 1.836, 1.719, 1.406, 1.328, 1.133, 1.191, 1.016, 0.938, 0.977,
+  1.094, 1.035, 0.82, 0.781, 0.859, 0.801, 0.645, 0.586, 0.645, 0.605, 0.449, 0.391,
+  0.41, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0
+]);
+
+function tuningMassKg(midi) {
+  if (midi < 0 || midi >= 128) return 0;
+  return TUNING_MASS_G[midi] * 1e-3;
+}
+
+// Cached A4 effective mass (beam modal + tip tuning mass)
+var TINE_M_EFF_A4 = 0;
+
 function hallMassCorrection(midi, freqRatio) {
   // Disabled: returns 1.0 for all modes.
   // Physics justification: Rhodes hammer >> tine mass. Hall's piano model
@@ -696,7 +724,30 @@ function computeTineAmplitude(midi, velocity) {
     // Store A4 alphaMax for normalization (fixed vel=0.5, same as per-key)
     var hrAlpha = getHammerParams(69, 0.5);
     TINE_A4_ALPHA = hrAlpha.alphaMax;
+    // Cache A4 m_eff = (33/140)·ρ·A·L + m_tip (tuning mass)
+    var mBeamA4 = (33.0 / 140.0) * TINE_RHO * TINE_A * Lr;
+    TINE_M_EFF_A4 = mBeamA4 + tuningMassKg(69);
   }
+
+  // --- 2026-04-23 Phase B-2: per-key tip tuning mass correction ---
+  // Physics: impulse-driven SHM amplitude A = J / √(m_eff · k_eff). Previous
+  // formula ignored m_tip (solder + screws) even though FDTD-inverted values
+  // (tools/fdtd_output/tuning_mass_88_nes.json) were available since 2026-03-26.
+  //   m_beam_eff(midi) = (33/140)·ρ·A·L(midi)
+  //   m_eff(midi)      = m_beam_eff + tuningMassKg(midi)
+  //   tipMassFactor    = √(m_eff_A4 / m_eff(midi))  (A4 unchanged → preserves tineScale)
+  // Measured vs (no-factor) baseline at vel=110 (Suitcase + urinami v1):
+  //   C1 (24): -2.47 dB  E1 (40): +0.92  E2 (52): -0.63  C4 (60): -0.95
+  //   E3 (64): -0.16     C5 (72): +0.24  C6 (84): +0.97  E5 (88): +2.10
+  // → treble inverse-U tail HELPED (+1–2 dB C6/E5), extreme bass C1 hurt by
+  //   −2.5 dB (heavy m_tip 8.7g reduces displacement as √(m_A4/m)). Partial win.
+  //   詳細: notes/permanent/2026/Rhodes物理モデリングの音量逆U字は...
+  var mBeamEff = (33.0 / 140.0) * TINE_RHO * TINE_A * L_m;
+  var mEff = mBeamEff + tuningMassKg(midi);
+  var tipMassFactor = (mEff > 0 && TINE_M_EFF_A4 > 0)
+    ? Math.sqrt(TINE_M_EFF_A4 / mEff)
+    : 1.0;
+  A_raw *= tipMassFactor;
   // 2026-04-10: alphaNorm REMOVED (was physically backwards).
   //   Previous (2026-04-06) coupled alpha_max (Hertz contact deformation) as a
   //   multiplier on tine amplitude. This was wrong:

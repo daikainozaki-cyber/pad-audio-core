@@ -40,6 +40,38 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 
 # 履歴
 
+## [2026-04-23] {pending-sha} — B-2: FDTD tuning mass (88 keys) を DSP に統合 (treble 逆U字尾部を +1-2 dB 改善)
+
+### Feature
+- **B-2**: `computeTineAmplitude` に per-key tip tuning mass 物理を追加。`TUNING_MASS_G` (Float32Array 128) を埋め込み、`tuningMassKg(midi)` 経由で m_eff = m_beam_eff + m_tip を計算、`tipMassFactor = √(m_eff_A4 / m_eff)` を A_raw に乗算 (A4 固定 → tineScale 保持)
+- 出典: `tools/fdtd_output/tuning_mass_88_nes.json` (2026-03-26 FDTD inversion, NES coupling) — sync miss していた物理軸を取り込み
+
+### 測定 (vs no-factor baseline, vel=110, Suitcase + urinami v1)
+- C1 (24): **−2.47 dB**  (m_tip=8.7g, 極低音の重い tip mass が displacement を減らす物理通り)
+- E1 (40): +0.92 dB
+- E2 (52): −0.63 dB
+- C4 (60): −0.95 dB
+- E3 (64): −0.16 dB
+- C5 (72): +0.24 dB
+- C6 (84): **+0.97 dB**
+- E5 (88): **+2.10 dB**
+
+### 評価 (部分的勝利)
+- **高音側 inverse-U 尾部 HELPED**: C6/E5 が +1-2 dB (狙い通り)
+- **極低音 HURT**: C1 が −2.5 dB (物理通りだが体感の逆U字悪化)
+- **中音 slight reduction**: C4 −1 dB, E3 −0.2 dB (狙い通り、peak 下げ)
+- 物理的には正確。残りの逆U字は PU + amp パイプライン由来 (bass displacement は大きいが低周波は dΦ/dt が小さい)
+
+### 次の軸
+- C1 (m_tip=8.7g) の物理的減衰は tuningMassFactor 単独で補正不可 → urinami 方針通り、ダメなら LUT 近似へ
+- 実測に合わせた combined 係数による LUT approximation (urinami 2026-04-22 明言)
+
+### Consumer 対応
+- API 変更なし、A_raw 内部挙動のみ。default で有効
+- 既存 consumer (64PE / MRC) は bump で per-key 音量バランス変化を体感確認
+
+---
+
 ## [2026-04-23] 8969774 — A-1 lhorOffset feed + A/B 試行履歴コメント追記 (音量逆U字解消は情報不足で不可能と確定)
 
 ### Fix
