@@ -1074,16 +1074,28 @@ function computePickupLUT_dipole(symmetry, distance, gapMm, qRange, lverOffset, 
 
 // --- Cylinder PU model (finite pole piece, physically accurate near-field) ---
 // Physics: uniformly magnetized AlNiCo 5 cylinder.
-//   a = 5mm (pole radius), h = 12.7mm (magnet height, 1/2 inch).
-//   Near-field gradient is much steeper than dipole → stronger nonlinearity
-//   at the same tine displacement → bell character.
 // LUT stores g'(q) = dBz/dq (axial gradient), computed by numerical differentiation.
-// Rhodes PU: AlNiCo 5 (1/2" dia) with pole screw concentrator.
-// Effective pole radius = screw tip, not magnet diameter.
-// SM Chapter 10: pole screw tip ≈ 3.5mm diameter → radius 1.75mm.
-// In normalized coords (÷25mm): 1.75/25 ≈ 0.07. Using 0.14 (3.5mm radius)
-// as conservative estimate (field spreads slightly beyond screw tip).
-var CYL_A = 0.14;    // effective pole radius in normalized coords (3.5mm / 25mm)
+//
+// 2026-04-24 D-3.2: magnet 寸法訂正
+//   根拠: US Patent 4,040,321 原典
+//     "The permanent magnet 42 is made of 'Alnico 5', magnetized lengthwise.
+//      It is a cylinder 0.5 inch long and 0.1875 inch in diameter."
+//   → magnet 直径 0.1875 inch (4.76 mm) = radius 2.38 mm
+//   → magnet 長さ 0.5 inch (12.7 mm) (CYL_H と一致、変化なし)
+//
+//   旧コメント "1/2 inch dia" は "0.5 inch long" の誤読、直径ではない。
+//   旧 CYL_A = 0.14 (=3.5mm radius) は patent 実測 2.38mm より大きく、
+//   かつ pole screw tip (SM Ch.10 の 1.75mm) も飛ばしてた保守的過大推定。
+//   結果: near-field が flat すぎて gap 変化が LUT peak に +0.5 dB しか
+//   伝わらず、per-key voicing が実質無効化されていた。
+//
+//   新 CYL_A = 0.07 (= 1.75mm = pole screw tip 実効半径)
+//   urinami 2026-04-24 "音量差を出す" 方針に従い、実効 pole radius で評価。
+//   option A (patent 直径 radius 0.0952) も候補、A/B は将来 urinami 判断。
+//
+// Rhodes PU: AlNiCo 5 rod with pole screw concentrator.
+// Effective pole radius at screw tip = concentrated field exit point.
+var CYL_A = 0.07;    // effective pole radius at screw tip (1.75mm / 25mm)
 var CYL_H = 0.508;   // magnet height in normalized coords (12.7mm / 25mm)
 
 function computePickupLUT(symmetry, distance, gapMm, qRange, lverOffset, lhorOffset) {
@@ -1994,6 +2006,43 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
       var lutCopy = new Float32Array(this.gePreampLUT.length);
       for (var i = 0; i < this.gePreampLUT.length; i++) lutCopy[i] = this.gePreampLUT[i];
       this.port.postMessage({ type: '_debugPreampLUT', lut: lutCopy }, [lutCopy.buffer]);
+    } else if (msg.type === 'debugGapDump') {
+      // D-3 診断: 現在の gapVoicing と puGapMm の実返り値、および LUT peak を dump
+      var midis = [28, 40, 52, 60, 72, 84, 96, 100];
+      var factoryGaps = {}, dynoGaps = {};
+      var factoryLutPeak = {}, dynoLutPeak = {};
+      for (var mi = 0; mi < midis.length; mi++) {
+        var m = midis[mi];
+        factoryGaps[m] = puGapMm(m, 'factory');
+        dynoGaps[m] = puGapMm(m, 'dyno');
+        var lverOff = perKeyLverOffset(m);
+        var lhorOff = 0;
+        var qRange = 0.45;
+        var factoryLut = (this.puModel === 'dipole') ?
+          computePickupLUT_dipole(this.pickupSymmetry, this.pickupDistance, factoryGaps[m], qRange, lverOff, lhorOff) :
+          computePickupLUT(this.pickupSymmetry, this.pickupDistance, factoryGaps[m], qRange, lverOff, lhorOff);
+        var dynoLut = (this.puModel === 'dipole') ?
+          computePickupLUT_dipole(this.pickupSymmetry, this.pickupDistance, dynoGaps[m], qRange, lverOff, lhorOff) :
+          computePickupLUT(this.pickupSymmetry, this.pickupDistance, dynoGaps[m], qRange, lverOff, lhorOff);
+        var fp = 0, dp = 0;
+        for (var i = 0; i < factoryLut.length; i++) {
+          if (Math.abs(factoryLut[i]) > fp) fp = Math.abs(factoryLut[i]);
+          if (Math.abs(dynoLut[i]) > dp) dp = Math.abs(dynoLut[i]);
+        }
+        factoryLutPeak[m] = fp;
+        dynoLutPeak[m] = dp;
+      }
+      this.port.postMessage({
+        type: 'debugGapDump',
+        currentVoicing: this.gapVoicing,
+        puModel: this.puModel,
+        pickupDistance: this.pickupDistance,
+        pickupSymmetry: this.pickupSymmetry,
+        factoryGaps: factoryGaps,
+        dynoGaps: dynoGaps,
+        factoryLutPeak: factoryLutPeak,
+        dynoLutPeak: dynoLutPeak,
+      });
     } else if (msg.type === '_debugDumpVoicing') {
       // Voicing Lab 確認: worklet 内の実 voicing 値 (drive / gain / pre-fx trim)
       // を main thread に返す。postMessage パイプが届いているか検証する用途。
