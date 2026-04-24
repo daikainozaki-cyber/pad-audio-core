@@ -130,6 +130,9 @@ function loadSoundSettings() {
     if (!s) return;
     // Migrate removed Spring EXP preset → Rhodes DI
     if (s.preset === 'Rhodes DI Spring EXP') s.preset = 'Rhodes DI';
+    // D-8 (2026-04-25): 'Rhodes Suitcase' は 3 variant (Clean/Drive/Vintage) に
+    // 分割された。旧 'Rhodes Suitcase' は Drive に相当するので migrate.
+    if (s.preset === 'Rhodes Suitcase') s.preset = 'Rhodes Suitcase Drive';
     if (s.engine && ENGINES[s.engine]) {
       var wasMuted = _soundMuted;
       setEngine(s.engine);

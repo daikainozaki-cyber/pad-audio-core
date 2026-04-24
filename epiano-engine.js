@@ -79,45 +79,49 @@ var EpState = {
 // なることを目標に、preset ごとの素の出力レベル差を dB 補正で埋める。
 // 基準: DI (アンプ無し)。Suitcase は内蔵アンプで音量が上がるので dB を下げる。
 // 物理モデルの内部挙動は変えず、最終段の gain staging のみ補正する。
+// D-8 (2026-04-25): Suitcase を Clean / Drive / Vintage の 3 variant に分割。
+// 従来の 'Rhodes Suitcase' は Drive に相当 (2026-04-24 までの bark/drive 寄り
+// calibration)。Clean は HPS 会員 default 向け、Vintage は warm/saturated 趣味向け。
+// 共通部分 (preamp/poweramp type、spring 系、outputGainDb) は factor out。
+var _SUITCASE_COMMON = {
+  pickupType: 'rhodes',
+  // 2026-04-22 Phase 1: Peterson 80W Preamp (fig11-8 Q1/Q2 = 2N3392 Si NPN 2-stage)
+  preampType: 'Si2N3392_2stage',
+  powerampType: 'GeTr',
+  useTonestack: true,
+  useCabinet: true,
+  useSpringReverb: true,
+  springPlacement: 'pre_tremolo',
+  springInputTrim: 0.34,
+  springReturnGain: 0.85,
+  springSendHPFHz: 180,
+  springTiltDb: -3,
+  springSendLPFHz: 5800,
+  springOutHPFHz: 260,
+  springResonatorMix: 0.45,
+  springModDepth: 4.0,
+  springHfMix: 0.0005,
+  springFeedbackScale: 0.88,
+  // outputGainDb 履歴: 0 → 3 (D-5 perceptual) → 6 (D-5.1) → 9 (D-5.2 両 preset +3)
+  outputGainDb: 9,
+};
+
 var EP_AMP_PRESETS = {
-  'Rhodes Suitcase': {
-    pickupType: 'rhodes',
-    // 2026-04-22 Phase 1: Peterson 80W Preamp (fig11-8 Q1/Q2 = 2N3392 Si NPN 2-stage)
-    // 旧 'NE5534' は op-amp 1 段モデルだったため、schematic と不整合。
-    // 電力段 'GeTr' は Phase 5 で 'SiPushPull' に訂正予定（schematic: 2N0725 Si BJT OCL）。
-    preampType: 'Si2N3392_2stage',
-    powerampType: 'GeTr',
-    useTonestack: true,
-    useCabinet: true,
-    useSpringReverb: true,   // External reverb via Acc1/2 loop
-    springPlacement: 'pre_tremolo',
-    springInputTrim: 0.34,
-    springReturnGain: 0.85,
-    springSendHPFHz: 180,
-    springTiltDb: -3,
-    springSendLPFHz: 5800,
-    springOutHPFHz: 260,
-    springResonatorMix: 0.45,
-    springModDepth: 4.0,
-    springHfMix: 0.0005,
-    springFeedbackScale: 0.88,
-    // Suitcase 内蔵アンプ自然増 +12dB に対して compensate で 0dB 補正 (全体底上げ)。
-    // DI は +12dB 底上げ、Suitcase は 0dB (元の自然アンプを活かす)。相対差 12dB 維持。
-    // 2026-04-22 第2次: urinami 実機テストで「変化が聞こえない」ため +6 → 0dB に引き上げ。
-    // 2026-04-25 第3次: RMS 実測は Stage と完全一致 (AVG -0.02 dB) だが
-    //   urinami 耳判定「Suitcase のハイがない (cabinet LPF 5.5kHz + amp HF 減衰)
-    //   ため perceptual に低く聞こえる」→ +3 dB 補正。実機録音の慣習
-    //   (DI → Suitcase mic で後者を amp make-up) と整合。Codex P2 レベル補正。
-    // 2026-04-25 第4次: D-5.1 urinami 「Suitcase もそもそも小さい、3 dB 上げて」
-    //   → +3 → +6 dB に引き上げ。並行で cabinet LPF 根拠 (5.5kHz) を再調査中
-    //    (根拠薄弱な Eminence Legend 1258 spec 単体 → 実機録音の HF レンジを
-    //     取り込むべき可能性、urinami 「根拠がない」指摘)
-    // 2026-04-25 第5次: D-5.2 urinami「2つとも あと 3 dB 上げて」
-    //   Stage と Suitcase 両方 +3 dB → Suitcase 6 → 9。
-    //   並行で cab Peak @ 1800 Hz +6 dB の根拠再調査 (スピーカー周波数特性
-    //   にそんな bump があるか疑わしい、urinami 指摘)。
-    outputGainDb: 9,
-  },
+  'Rhodes Suitcase Clean': Object.assign({}, _SUITCASE_COMMON, {
+    // Clean: HPS 会員 default 向け、素直な Rhodes 音。drive 最小、makeup 控えめ。
+    voicingLabDefaults: { gePreampDrive: 1.5, gePreampGain: 1.3, suitcasePreFxTrim: 0.5, jaWetMix: 0 },
+  }),
+  'Rhodes Suitcase Drive': Object.assign({}, _SUITCASE_COMMON, {
+    // Drive: 70年代 records 定番、bark/fat 前面。従来の 'Rhodes Suitcase' 相当。
+    voicingLabDefaults: { gePreampDrive: 2.5, gePreampGain: 1.5, suitcasePreFxTrim: 0.42, jaWetMix: 0 },
+  }),
+  'Rhodes Suitcase Vintage': Object.assign({}, _SUITCASE_COMMON, {
+    // Vintage: 経年 germanium、J-A saturation 強め、warm/mid 押し出し。
+    voicingLabDefaults: { gePreampDrive: 3.0, gePreampGain: 1.2, suitcasePreFxTrim: 0.35, jaWetMix: 0.5 },
+  }),
+  // Backward compat: localStorage に 'Rhodes Suitcase' が残っている場合
+  // audio-persistence.js の migration で 'Rhodes Suitcase Drive' に置換する。
+  // 定義自体は削除 (エイリアスなし、migrate-and-forget)。
   // 'Wurlitzer 200A' preset was removed on 2026-04-13 (Phase 0.3c) —
   // never exposed in the user-facing ENGINES registry, and its only
   // worklet path used the now-deleted Twin DSP. Definition preserved

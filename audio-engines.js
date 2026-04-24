@@ -20,8 +20,10 @@ const ENGINES = {
   epiano: {
     name: 'E.PIANO',
     presets: {
-      'Rhodes DI':             { epiano: 'Rhodes DI',             label: 'Pad Sensei MK1 Stage' },
-      'Rhodes Suitcase':       { epiano: 'Rhodes Suitcase',       label: 'Pad Sensei MK1 Suitcase' },
+      'Rhodes DI':                  { epiano: 'Rhodes DI',                  label: 'Pad Sensei MK1 Stage' },
+      'Rhodes Suitcase Clean':      { epiano: 'Rhodes Suitcase Clean',      label: 'Pad Sensei MK1 Suitcase Clean' },
+      'Rhodes Suitcase Drive':      { epiano: 'Rhodes Suitcase Drive',      label: 'Pad Sensei MK1 Suitcase Drive' },
+      'Rhodes Suitcase Vintage':    { epiano: 'Rhodes Suitcase Vintage',    label: 'Pad Sensei MK1 Suitcase Vintage' },
     },
     defaultPreset: 'Rhodes DI',  // internal key unchanged (EP_AMP_PRESETS reference)
   },
@@ -90,6 +92,21 @@ function setPreset(name) {
   var b = (typeof window !== 'undefined' && window.audioCoreConfig)
     ? window.audioCoreConfig.presetDropdown : null;
   if (b && b.sync) b.sync(AudioState.engineKey + ':' + name);
+
+  // D-8 (2026-04-25): preset 切替時に voicingLabDefaults があれば適用。
+  // Clean / Drive / Vintage で character 自動切替、urinami 耳判定で微調整。
+  // 手動変更値は localStorage に残るが、preset 切替で上書きする運用
+  // (A/B 比較を明瞭にする)。
+  var inst = AudioState.instrument;
+  var epPreset = (typeof EP_AMP_PRESETS !== 'undefined' && inst && inst.epiano)
+    ? EP_AMP_PRESETS[inst.epiano] : null;
+  if (epPreset && epPreset.voicingLabDefaults && typeof window !== 'undefined') {
+    var vd = epPreset.voicingLabDefaults;
+    window.EpVoicingLab = Object.assign({}, window.EpVoicingLab || {}, vd);
+    if (typeof _epwSendVoicingLabParams === 'function') _epwSendVoicingLabParams();
+    try { localStorage.setItem('keys-voicing-lab', JSON.stringify(window.EpVoicingLab)); } catch (_) {}
+  }
+
   saveSoundSettings();
   _updateEpMixerVisibility();
 }
