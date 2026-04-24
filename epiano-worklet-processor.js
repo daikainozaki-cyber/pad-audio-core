@@ -717,6 +717,14 @@ function hallMassCorrection(midi, freqRatio) {
   return 1.0;
 }
 
+// D-11 (2026-04-25, 撤回記録):
+// tine amplitude tanh soft-clip を試したが urinami 耳判定「0 のほうが良い」で
+// 撤回。tanh は amplitude compression のみで harmonic 生成を伴わず Rhodes bass
+// bark は再現できない。現モデルは D-1 (sqrt 撤去) + PU LUT 非線形で bass ff が
+// 既に自然に圧縮されており、追加の pre-PU saturation は不要。
+// D-12 (次の試行) は urinami 仮説「低音側 PU のほうが歪みやすい」に基づき
+// per-key PU LUT の非線形を強化する方向。実装経路は D-11 と異なる (別関数)。
+
 function computeTineAmplitude(midi, velocity) {
   var L_m = tineLength(midi) * 1e-3; // mm → m
   var hammer = getHammerParams(midi, velocity);
@@ -1373,6 +1381,12 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.vEmDampGain   = new Float32Array(MAX_VOICES);  // current gain (starts 1.0)
     this.vEmDampTarget = new Float32Array(MAX_VOICES);  // converges to emDampRatio
     this.vEmDampCoeff  = new Float32Array(MAX_VOICES);  // pre-computed alpha = e^(-1/(0.025*fs))
+    // D-10 Codex P2 fix (2026-04-25): slider で emDampCoef を変えた時に、すでに
+    // 鳴ってる voice の vEmDampTarget を再計算する必要がある。そのために noteOn
+    // で計算した puDampStrength (velocity, massRatio, puCoupling 複合値) を voice
+    // ごとに保存しておく。msg handler で emDampCoef 変更時に全 active voice の
+    // vEmDampTarget を再計算。A/B/C 比較を hold 中でも効くように。
+    this.vPuDampStrength = new Float32Array(MAX_VOICES);
 
     // Mechanical decay holdoff: matches old engine where decay starts AFTER EM damp phase (75ms).
     // During holdoff, vAmp stays at initial value. Beam modes ring at full amplitude = bell character.
@@ -1560,6 +1574,12 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     // jaWetMix=1: full J-A (hysteresis + pre/de-emph)
     // Voicing Lab UI から調整して split 歪みバグの再現と回避を耳検証する
     this.jaWetMix = 0;
+    // D-10/D-11 撤去完了 (2026-04-25 深夜):
+    // - urinami 耳判定「EM ない方がらしい」「0 ならいらない」で UI・msg 経路を撤去
+    // - worklet 内部の emDampCoef は legacy default 0.4 を維持 (Lenz damping 従来挙動)
+    //   64PE/MRC/Plugin 等 Voicing Lab を持たない consumer は constructor default
+    //   で旧挙動、keys でも 0.4 のまま (Voicing Lab UI 撤去で msg 送信なくなった)
+    this.emDampCoef = 0.4;
     // Pre/de-emphasis: boost lows before J-A, cut after → frequency-dependent saturation
     // Low shelf +6dB at 200Hz before J-A, -6dB after. Stable alternative to integrate/differentiate.
     this.jaPreEmphCoeff = biquadLowShelf(200, 6, fs);
@@ -2440,7 +2460,10 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     if (puCoupling < 0) puCoupling = 0;
     var puDampStrength = velocity * puCoupling / Math.max(massRatio, 0.3);
     if (puDampStrength > 1) puDampStrength = 1;
-    var emDampRatio = 1.0 - puDampStrength * 0.4;
+    // D-10 Codex P2 fix: puDampStrength を保存して slider 変更時の再計算に使う
+    this.vPuDampStrength[vi] = puDampStrength;
+    // D-10 (2026-04-25): 係数 ハードコード 0.4 → this.emDampCoef (Voicing Lab A/B/C)
+    var emDampRatio = 1.0 - puDampStrength * this.emDampCoef;
     this.vEmDampGain[vi]   = 1.0;
     this.vEmDampTarget[vi] = emDampRatio;
     var emTau = 0.025 * Math.sqrt(massRatio);
