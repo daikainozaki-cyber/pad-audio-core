@@ -1118,7 +1118,12 @@ function computePickupLUT(symmetry, distance, gapMm, qRange, lverOffset, lhorOff
   lut[LUT_SIZE - 1] = (Bz[LUT_SIZE - 1] - Bz[LUT_SIZE - 2]) / dq;
 
   // 2026-04-23 C-2: 固定 refPeak normalize を一律 constant scale に置換 (上記と同方針)。
-  var CYL_LUT_SCALE = 1.2; // C-2 第 4 版: 「歪み強い」で 2→1.2 (-4.4 dB)
+  // 2026-04-24 D-3.2 の後書き:
+  //   CYL_A を 0.14 → 0.07 に縮小したため LUT peak が +3.5 dB 上昇、
+  //   Suitcase amp chain で歪み過剰 (urinami 耳「歪みが感じる」)。
+  //   CYL_LUT_SCALE を 1.2 → 0.8 に下げて LUT 総合出力を旧水準に揃える。
+  //   Dyno/Factory の per-key 差 (±1 dB) は scale には影響しないので保存。
+  var CYL_LUT_SCALE = 0.8; // D-3.2 後: 1.2 → 0.8 (-3.5 dB) で CYL_A 縮小の補正
   for (var i = 0; i < LUT_SIZE; i++) lut[i] *= CYL_LUT_SCALE;
   return lut;
 }
@@ -1141,7 +1146,8 @@ function computePickupLUT_horizontal(symmetry, distance, gapMm, qRange, lverOffs
   }
 
   // 2026-04-23 C-2: horizontal LUT も一律 constant scale (垂直と同じ方針)。
-  var CYL_H_LUT_SCALE = 1.2;
+  // 2026-04-24 D-3.2: CYL_A 縮小に伴い 1.2 → 0.8 で垂直と同じ補正
+  var CYL_H_LUT_SCALE = 0.8;
   for (var i = 0; i < LUT_SIZE; i++) lut[i] *= CYL_H_LUT_SCALE;
   return lut;
 }
