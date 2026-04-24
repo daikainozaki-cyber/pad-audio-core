@@ -57,6 +57,19 @@ function setEngine(key) {
   _updateEpMixerVisibility();
 }
 
+// D-8.1 (Codex P1 fix): voicingLabDefaults 適用ヘルパ。
+// selectSound と setPreset の両方から呼ぶ (以前は setPreset のみで、UI 経由の
+// selectSound で preset 変えても voicing が更新されない bug)。
+function _applyVoicingLabDefaults(inst) {
+  if (typeof EP_AMP_PRESETS === 'undefined' || !inst || !inst.epiano) return;
+  var epPreset = EP_AMP_PRESETS[inst.epiano];
+  if (!epPreset || !epPreset.voicingLabDefaults || typeof window === 'undefined') return;
+  var vd = epPreset.voicingLabDefaults;
+  window.EpVoicingLab = Object.assign({}, window.EpVoicingLab || {}, vd);
+  if (typeof _epwSendVoicingLabParams === 'function') _epwSendVoicingLabParams();
+  try { localStorage.setItem('keys-voicing-lab', JSON.stringify(window.EpVoicingLab)); } catch (_) {}
+}
+
 function selectSound(combinedValue) {
   var parts = combinedValue.split(':');
   var engKey = parts[0], presetKey = parts.slice(1).join(':');
@@ -75,6 +88,7 @@ function selectSound(combinedValue) {
   AudioState.presetKey = presetKey;
   AudioState.instrument = AudioState.engine.presets[presetKey];
   _applyPresetEpMixerDefaults();
+  _applyVoicingLabDefaults(AudioState.instrument); // D-8.1: UI 経由 preset 切替でも voicing 連動
   saveSoundSettings();
   _updateEpMixerVisibility();
   // Phase 3.0.c2: tremolo redispatch via audioCoreConfig.mixer bridge.
@@ -94,18 +108,8 @@ function setPreset(name) {
   if (b && b.sync) b.sync(AudioState.engineKey + ':' + name);
 
   // D-8 (2026-04-25): preset 切替時に voicingLabDefaults があれば適用。
-  // Clean / Drive / Vintage で character 自動切替、urinami 耳判定で微調整。
-  // 手動変更値は localStorage に残るが、preset 切替で上書きする運用
-  // (A/B 比較を明瞭にする)。
-  var inst = AudioState.instrument;
-  var epPreset = (typeof EP_AMP_PRESETS !== 'undefined' && inst && inst.epiano)
-    ? EP_AMP_PRESETS[inst.epiano] : null;
-  if (epPreset && epPreset.voicingLabDefaults && typeof window !== 'undefined') {
-    var vd = epPreset.voicingLabDefaults;
-    window.EpVoicingLab = Object.assign({}, window.EpVoicingLab || {}, vd);
-    if (typeof _epwSendVoicingLabParams === 'function') _epwSendVoicingLabParams();
-    try { localStorage.setItem('keys-voicing-lab', JSON.stringify(window.EpVoicingLab)); } catch (_) {}
-  }
+  // D-8.1 で selectSound と共通化 (Codex P1 指摘で _applyVoicingLabDefaults 共通化)
+  _applyVoicingLabDefaults(AudioState.instrument);
 
   saveSoundSettings();
   _updateEpMixerVisibility();
