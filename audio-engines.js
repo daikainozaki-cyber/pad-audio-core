@@ -67,6 +67,11 @@ function _applyVoicingLabDefaults(inst) {
   var vd = epPreset.voicingLabDefaults;
   window.EpVoicingLab = Object.assign({}, window.EpVoicingLab || {}, vd);
   if (typeof _epwSendVoicingLabParams === 'function') _epwSendVoicingLabParams();
+  // D-8.2: UI slider を新しい値に同期 (urinami「DRIVE の値が変わらない」修正)。
+  // _applyVoicingLabToUI は mixer-ui.js で window に expose 済。
+  if (typeof window._applyVoicingLabToUI === 'function') {
+    try { window._applyVoicingLabToUI(); } catch (_) {}
+  }
   try { localStorage.setItem('keys-voicing-lab', JSON.stringify(window.EpVoicingLab)); } catch (_) {}
 }
 
