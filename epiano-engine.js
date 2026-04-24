@@ -45,6 +45,7 @@ var _epTonestackFB = null;  // feedback (a coefficients)
 var EpState = {
   pickupSymmetry: 0.3,    // 0..1: voicing (0=on-axis: 2nd harmonic dominant, 1=far off-axis: fundamental dominant)
   pickupDistance: 0.5,     // 0.1..1.0: horizontal gap (closer=more distortion)
+  gapVoicing: 'dyno',      // 'factory' | 'dyno' (D-3 A/B)、worklet 側にも伝播。実際の curve は worklet-processor.js の puGapMm(). fallback engine 側 `_puGapMm` は現状 factory curve 固定 (Codex P2 指摘、将来同期)
   preampGain: 1.0,         // 0.5..5.0: input drive
   tonestackBass: 0.5,      // 0..1
   tonestackMid: 0.5,       // 0..1

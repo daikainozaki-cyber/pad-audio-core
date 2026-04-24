@@ -20,6 +20,7 @@ var _epw_initPromise = null;  // Promise cache to prevent concurrent init race
 var EpwState = {
   pickupSymmetry: 0.3,
   pickupDistance: 0.5,
+  gapVoicing: 'dyno', // 'factory' | 'dyno' (D-3 A/B 切替)
   preampGain: 1.0,
   tonestackBass: 0.5,
   tonestackMid: 0.5,
@@ -142,6 +143,7 @@ function _epwSendParams() {
     type: 'params',
     pickupSymmetry: EpState.pickupSymmetry,
     pickupDistance: EpState.pickupDistance,
+    gapVoicing: (typeof EpState.gapVoicing !== 'undefined') ? EpState.gapVoicing : 'dyno',
     preampGain: EpState.preampGain,
     tsBass: EpState.tonestackBass,
     tsMid: EpState.tonestackMid,

@@ -369,7 +369,7 @@ function bandModeExcitation(xi_center, bandNorm, m) {
   return sumW > 0 ? sumF / sumW : cantileverPhi(xi_center, m) / PHI_TIP[m];
 }
 
-function puGapMm(midi) {
+function puGapMm(midi, voicing) {
   // 2026-04-07: gradual curve instead of step function.
   //
   // 履歴:
@@ -412,6 +412,22 @@ function puGapMm(midi) {
   // Well-voiced Rhodes sits closer than SM max. Dyno-voiced goes even closer.
   var key = midi - 20;
   if (key < 1) key = 1; if (key > 88) key = 88;
+
+  // 2026-04-24 D-3: voicing 切替 ('factory' = 旧 v2、'dyno' = 新 Dyno-voiced、
+  // default 'dyno'). urinami A/B 判定用。切替は notoeOn 時に反映、
+  // 既存 voice の LUT は再計算されないため、press-and-toggle で聴き比べる運用
+  if (voicing === 'factory') {
+    // 旧 v2 curve (2026-04-07 gradual taper)
+    if (key <= 30) {
+      var t_f = (key - 1) / 29;
+      return 1.1 * (1 - t_f) + 0.794 * t_f;
+    }
+    if (key <= 65) return 0.794;
+    var t2_f = (key - 65) / 23;
+    return 0.794 * (1 - t2_f) + 1.1 * t2_f;
+  }
+
+  // 'dyno' (default) — Dyno-voiced curve
   if (key <= 30) {
     // Bass: taper from 0.6mm (key 1, C0) to 0.794mm (key 30, D3)
     //   was: 1.1mm → 0.794mm (factory)
@@ -1602,6 +1618,7 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     // TODO: verify with compare_spectra.py against Gabrielli companion files.
     this.pickupSymmetry = 0.50; // urinami-san default: bell sweet spot
     this.pickupDistance  = 0.5;
+    this.gapVoicing      = 'dyno'; // 'factory' | 'dyno' (D-3 A/B 切替)
     this.preampGain     = 1.0;
     // tsBass / tsTreble are reused by Suitcase Baxandall EQ (see
     // suitcaseBaxBassCoeff recompute in param handler). tsMid / brightSwitch
@@ -1994,6 +2011,7 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
   _updateParams(msg) {
     if (msg.pickupSymmetry !== undefined) this.pickupSymmetry = msg.pickupSymmetry;
     if (msg.pickupDistance !== undefined) this.pickupDistance = msg.pickupDistance;
+    if (msg.gapVoicing !== undefined) this.gapVoicing = msg.gapVoicing;
     if (msg.preampGain !== undefined) this.preampGain = msg.preampGain;
     // msg.powerampDrive removed 2026-04-13 — Twin-only param.
     if (msg.volumePot !== undefined) this.volumePot = msg.volumePot;
@@ -2377,7 +2395,7 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     // Match condition: vA_fund × vVelScale = 1.0 × ω₀ → vVelScale = ω₀ / vA_fund.
     this.vVelScale[vi] = omega0 / Math.max(vA_fund, 0.01);
 
-    var gapMm = puGapMm(midi);
+    var gapMm = puGapMm(midi, this.gapVoicing);
     // qRange: LUT covers [-qRange, +qRange] of physical PU field.
     // Magnetic dipole (1/r³) field decays steeply → effective nonlinear region is narrow.
     //
