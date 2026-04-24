@@ -104,7 +104,11 @@ var EP_AMP_PRESETS = {
     // Suitcase 内蔵アンプ自然増 +12dB に対して compensate で 0dB 補正 (全体底上げ)。
     // DI は +12dB 底上げ、Suitcase は 0dB (元の自然アンプを活かす)。相対差 12dB 維持。
     // 2026-04-22 第2次: urinami 実機テストで「変化が聞こえない」ため +6 → 0dB に引き上げ。
-    outputGainDb: 0,
+    // 2026-04-25 第3次: RMS 実測は Stage と完全一致 (AVG -0.02 dB) だが
+    //   urinami 耳判定「Suitcase のハイがない (cabinet LPF 5.5kHz + amp HF 減衰)
+    //   ため perceptual に低く聞こえる」→ +3 dB 補正。実機録音の慣習
+    //   (DI → Suitcase mic で後者を amp make-up) と整合。Codex P2 レベル補正。
+    outputGainDb: 3,
   },
   // 'Wurlitzer 200A' preset was removed on 2026-04-13 (Phase 0.3c) —
   // never exposed in the user-facing ENGINES registry, and its only
