@@ -20,7 +20,7 @@ const ENGINES = {
   epiano: {
     name: 'E.PIANO',
     presets: {
-      'Rhodes DI':             { epiano: 'Rhodes DI',             label: 'Pad Sensei MK1' },
+      'Rhodes DI':             { epiano: 'Rhodes DI',             label: 'Pad Sensei MK1 Stage' },
       'Rhodes Suitcase':       { epiano: 'Rhodes Suitcase',       label: 'Pad Sensei MK1 Suitcase' },
     },
     defaultPreset: 'Rhodes DI',  // internal key unchanged (EP_AMP_PRESETS reference)
