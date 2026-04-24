@@ -694,7 +694,14 @@ function computeTineAmplitude(midi, velocity) {
   // Physics: hammer travel distance limits kinetic energy transfer.
   var escMm = escapementMm(midi);
   var escDynamic = escMm / 7.94; // 1.0 at bass, 0.2 at treble
-  var velScaled = Math.pow(velocity, 1.0 / (0.5 + 0.5 * escDynamic));
+  // 2026-04-24 D-2: spurious `1.0 /` removed — exponent was inverted vs comment.
+  //   Intent (L691-694): treble (small escapement) = compressed DR.
+  //   Old: exp = 1 / (0.5+0.5·escDyn) → bass exp=1.0 / treble exp=1.67
+  //        ⇒ treble DR WIDER (33 dB) than bass (20 dB) = reversed.
+  //   New: exp = (0.5+0.5·escDyn) → bass exp=1.0 / treble exp=0.6
+  //        ⇒ treble DR 12 dB, bass DR 20 dB = matches physical intent.
+  //   Note: at v=1 (ff) velScaled=1.0 unchanged. Only v<1 (mf/pp) is affected.
+  var velScaled = Math.pow(velocity, 0.5 + 0.5 * escDynamic);
 
   // --- 2026-04-23 D-1: velScaled 線形化 ---
   // 旧: A_raw = √(m/k) × √velScaled × φ (sqrt が DR を半分に圧縮)
