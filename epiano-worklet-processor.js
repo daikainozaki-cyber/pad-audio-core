@@ -377,23 +377,52 @@ function puGapMm(midi) {
   //   v1 unified 0.794: bass output exploded → D2以下 silence (PU too close, g'(q) overflow).
   //   v2 gradual: smooth taper bass (1.1mm) → mid (0.794mm) → treble (1.1mm).
   //
-  // 2026-04-23 A-2 試行 (0.9/0.85/0.80/0.60mm 測定): 音量逆U字に影響なし (±0.3 dB)。
+  //   2026-04-23 A-2 試行 (0.9/0.85/0.80/0.60mm 測定): 音量逆U字に影響なし (±0.3 dB)。
   //   LUT 0.7/refPeak normalize が gap 効果を相殺。v2 (1.1mm) に revert。
   //   詳細: notes/permanent/2026/Rhodes物理モデリングの音量逆U字は...
   //
+  // 2026-04-24 D-3 (Dyno-voiced curve):
+  //   C-1 (qRange 物理幾何固定 0.45) + C-2 (LUT 正規化廃止) で rate-limiter
+  //   が除去された後の per-key gap 再調整。A-2 試行は rate-limiter 生きてた
+  //   時代 (±0.3 dB 止まり) なので前提条件が異なる。
+  //
+  //   実装方針:
+  //     Dyno-My-Piano (Chuck Monte, 1974-1980s) の voicing 手法
+  //     "moving the pickups as close to the tines as possible" を digital 再現。
+  //     urinami さん実機経験 (整備済 Rhodes + 70-80年代カスタム Rhodes 演奏) +
+  //     Vintage Vibe "note-to-note uniform" 標準と整合。
+  //     詳細: プロジェクト/PAD DAW/Rhodes_voicing業界地図.md
+  //     根拠: notes/permanent/2026/Rhodesのper-key音量補正はPU前段で...
+  //
+  //   新 curve (bass_start 1.1→0.6、treble_end 1.1→0.5、mid 据え置き、
+  //   treble taper 開始 key 65→60 に前倒しで C6 も救済):
+  //     C1 (midi 28, key 8):   0.647 mm (was 1.026 mm)  ← 37% 詰める
+  //     E1 (midi 40, key 20):  0.727 mm (was 0.898 mm)
+  //     D3 (midi 50, key 30):  0.794 mm (変化なし)
+  //     mid (key 31-60):       0.794 mm (factory 据え置き、物理的に最良)
+  //     C6 (midi 84, key 64):  0.752 mm (was 0.794 mm) ← treble taper 前倒し
+  //     E6 (midi 100, key 80): 0.584 mm (was 0.993 mm) ← 41% 詰める
+  //
+  //   Physics: SM voicing range 1/16"-1/8" (1.588-3.175mm)。
+  //   Dyno-era custom voicing は SM spec より更に詰めることで punchy/bell 感を出す。
+  //   0.6mm は v1 (0.794 unified) より詰めるが、C-1/C-2 後は escapement clamp
+  //   で bass tine amplitude が適切にスケール、LUT qRange 0.45 で 振幅収まる。
+  //
   // Physics: SM voicing range is 1/16"-1/8" (1.588-3.175mm) adjustable.
-  // Well-voiced Rhodes sits closer than SM max. Bass slightly wider for clearance.
+  // Well-voiced Rhodes sits closer than SM max. Dyno-voiced goes even closer.
   var key = midi - 20;
   if (key < 1) key = 1; if (key > 88) key = 88;
   if (key <= 30) {
-    // Bass: taper from 1.1mm (key 1) to 0.794mm (key 30)
+    // Bass: taper from 0.6mm (key 1, C0) to 0.794mm (key 30, D3)
+    //   was: 1.1mm → 0.794mm (factory)
     var t = (key - 1) / 29;
-    return 1.1 * (1 - t) + 0.794 * t;
+    return 0.6 * (1 - t) + 0.794 * t;
   }
-  if (key <= 65) return 0.794;
-  // Treble: taper from 0.794mm (key 65) to 1.1mm (key 88)
-  var t2 = (key - 65) / 23;
-  return 0.794 * (1 - t2) + 1.1 * t2;
+  if (key <= 60) return 0.794; // mid: factory 据え置き (physics optimal)
+  // Treble: taper from 0.794mm (key 60, C5) to 0.5mm (key 88, C8)
+  //   was: key 65 start、0.794 → 1.1mm。taper 開始を前倒し + 終端を詰めた
+  var t2 = (key - 60) / 28;
+  return 0.794 * (1 - t2) + 0.5 * t2;
 }
 
 // --- Escapement distance (SM Figure 4-2) ---
