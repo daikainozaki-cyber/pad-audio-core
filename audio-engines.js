@@ -57,6 +57,23 @@ function setEngine(key) {
   _updateEpMixerVisibility();
 }
 
+// D-9 (2026-04-25): preset 切替時に worklet へ全 param (spring 含む) を push。
+// 以前は _epwSendParams が init + knob 変更時だけで、preset 切替単独では
+// worklet に新 preset の spring params が届かず、次の knob 操作 or noteOn
+// まで旧 preset の reverb が残る latent bug があった。
+// selectSound と setPreset の末尾で呼ぶ。
+function _syncPresetToWorklet() {
+  if (typeof EpState === 'undefined' || !AudioState.instrument) return;
+  // EpState.preset は従来 noteOn 時 (audio-voice.js L94) に更新されていたが、
+  // _epwSendParams が参照する値なので preset 切替時にも sync する。
+  if (AudioState.instrument.epiano) {
+    EpState.preset = AudioState.instrument.epiano;
+  }
+  if (typeof _epwSendParams === 'function') {
+    try { _epwSendParams(); } catch (_) {}
+  }
+}
+
 // D-8.1 (Codex P1 fix): voicingLabDefaults 適用ヘルパ。
 // selectSound と setPreset の両方から呼ぶ (以前は setPreset のみで、UI 経由の
 // selectSound で preset 変えても voicing が更新されない bug)。
@@ -94,6 +111,7 @@ function selectSound(combinedValue) {
   AudioState.instrument = AudioState.engine.presets[presetKey];
   _applyPresetEpMixerDefaults();
   _applyVoicingLabDefaults(AudioState.instrument); // D-8.1: UI 経由 preset 切替でも voicing 連動
+  _syncPresetToWorklet(); // D-9: spring 含む全 preset params を worklet に即反映
   saveSoundSettings();
   _updateEpMixerVisibility();
   // Phase 3.0.c2: tremolo redispatch via audioCoreConfig.mixer bridge.
@@ -115,6 +133,8 @@ function setPreset(name) {
   // D-8 (2026-04-25): preset 切替時に voicingLabDefaults があれば適用。
   // D-8.1 で selectSound と共通化 (Codex P1 指摘で _applyVoicingLabDefaults 共通化)
   _applyVoicingLabDefaults(AudioState.instrument);
+  // D-9: preset 切替で spring 含む全 preset params を worklet に即反映
+  _syncPresetToWorklet();
 
   saveSoundSettings();
   _updateEpMixerVisibility();
