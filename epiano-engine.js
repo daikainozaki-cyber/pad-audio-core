@@ -112,7 +112,11 @@ var EP_AMP_PRESETS = {
     //   → +3 → +6 dB に引き上げ。並行で cabinet LPF 根拠 (5.5kHz) を再調査中
     //    (根拠薄弱な Eminence Legend 1258 spec 単体 → 実機録音の HF レンジを
     //     取り込むべき可能性、urinami 「根拠がない」指摘)
-    outputGainDb: 6,
+    // 2026-04-25 第5次: D-5.2 urinami「2つとも あと 3 dB 上げて」
+    //   Stage と Suitcase 両方 +3 dB → Suitcase 6 → 9。
+    //   並行で cab Peak @ 1800 Hz +6 dB の根拠再調査 (スピーカー周波数特性
+    //   にそんな bump があるか疑わしい、urinami 指摘)。
+    outputGainDb: 9,
   },
   // 'Wurlitzer 200A' preset was removed on 2026-04-13 (Phase 0.3c) —
   // never exposed in the user-facing ENGINES registry, and its only
@@ -141,7 +145,9 @@ var EP_AMP_PRESETS = {
     springFeedbackScale: 0.9,
     // DI は PU 直接出力。+12dB はクリップ、+6dB は Suitcase と並べて適正。
     // 2026-04-22 第3次: urinami「クリップする所がある」→ +12 → +6 に下げ。
-    outputGainDb: 6,
+    // 2026-04-25 D-5.2: urinami「2つとも あと 3 dB 上げて」→ +6 → +9 dB
+    //   (Suitcase と同調上げで Stage/Suitcase 相対バランス維持)
+    outputGainDb: 9,
   },
 };
 

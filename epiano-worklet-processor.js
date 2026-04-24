@@ -1607,7 +1607,14 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     // Character: "tight lows, warm smooth mids, upper mid emphasis", 80Hz-4kHz range
     this.suitcaseCabHPFCoeff  = biquadHighpass(90, 0.707, fs);
     this.suitcaseCabResCoeff  = biquadPeaking(94, 1.0, 2.0, fs);    // Fs=94Hz, tight (+2dB, "tight lows")
-    this.suitcaseCabPeakCoeff = biquadPeaking(1800, 1.5, 6.0, fs);  // Upper mid emphasis, warm
+    // 2026-04-25 D-7: Upper mid emphasis peak @ 1800 Hz +6 dB を 0 dB に disable。
+    //   根拠: urinami 耳「lo-fi すぎる、根拠は？」+ Codex 再調査で Rhodes Suitcase
+    //   cabinet 全体の公称/実測 FR カーブ未発見、1800 Hz +6 dB bump を支持する
+    //   一次資料なし。FenderRhodes LA 公式「Rhodes is full-range, guitar amps
+    //   cut highs Rhodes doesn't want」と整合。旧値は「warm/vocal-like
+    //   presence」を狙った経験値だった。0 dB で A/B、urinami 耳判定で決める。
+    //   biquadPeaking(freq, Q, gainDB, fs) — 0 dB = flat biquad (通過のみ)
+    this.suitcaseCabPeakCoeff = biquadPeaking(1800, 1.5, 0, fs);  // D-7: +6 → 0 dB (根拠なし、A/B)
     // 2026-04-25 D-6: cab LPF 5500 → 10000 Hz に引き上げ。
     //   根拠訂正: 旧 5500Hz は Eminence Legend 1258 (ギターアンプ speaker) の
     //   -6dB point に合わせていたが、Rhodes Suitcase は **keyboard amp** 設計。
