@@ -108,7 +108,11 @@ var EP_AMP_PRESETS = {
     //   urinami 耳判定「Suitcase のハイがない (cabinet LPF 5.5kHz + amp HF 減衰)
     //   ため perceptual に低く聞こえる」→ +3 dB 補正。実機録音の慣習
     //   (DI → Suitcase mic で後者を amp make-up) と整合。Codex P2 レベル補正。
-    outputGainDb: 3,
+    // 2026-04-25 第4次: D-5.1 urinami 「Suitcase もそもそも小さい、3 dB 上げて」
+    //   → +3 → +6 dB に引き上げ。並行で cabinet LPF 根拠 (5.5kHz) を再調査中
+    //    (根拠薄弱な Eminence Legend 1258 spec 単体 → 実機録音の HF レンジを
+    //     取り込むべき可能性、urinami 「根拠がない」指摘)
+    outputGainDb: 6,
   },
   // 'Wurlitzer 200A' preset was removed on 2026-04-13 (Phase 0.3c) —
   // never exposed in the user-facing ENGINES registry, and its only

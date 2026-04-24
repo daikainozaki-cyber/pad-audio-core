@@ -1608,7 +1608,14 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.suitcaseCabHPFCoeff  = biquadHighpass(90, 0.707, fs);
     this.suitcaseCabResCoeff  = biquadPeaking(94, 1.0, 2.0, fs);    // Fs=94Hz, tight (+2dB, "tight lows")
     this.suitcaseCabPeakCoeff = biquadPeaking(1800, 1.5, 6.0, fs);  // Upper mid emphasis, warm
-    this.suitcaseCabLPFCoeff  = biquadLowpass(5500, 0.707, fs);      // Eminence Legend 1258 sealed-cabinet -6dB point ≈5.5kHz (urinami 2026-04-22 実機合わせ)
+    // 2026-04-25 D-6: cab LPF 5500 → 10000 Hz に引き上げ。
+    //   根拠訂正: 旧 5500Hz は Eminence Legend 1258 (ギターアンプ speaker) の
+    //   -6dB point に合わせていたが、Rhodes Suitcase は **keyboard amp** 設計。
+    //   urinami 明言「ギターアンプより上が出るはず」。
+    //   keyboard 向けは wider HF response で piano transient を担う。
+    //   旧 5500Hz は guitar amp model を無根拠に流用していた error。
+    //   10kHz に引き上げ + 耳判定で継続調整。
+    this.suitcaseCabLPFCoeff  = biquadLowpass(10000, 0.707, fs);
     // Separate biquad states for Suitcase (no cross-contamination on amp type switch)
     this.suitcaseCabHPFState  = new Float32Array(2);
     this.suitcaseCabResState  = new Float32Array(2);
