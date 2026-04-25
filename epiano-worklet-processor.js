@@ -2506,10 +2506,16 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     //   v1 pow(0.3): Bass puPos +22-62%.
     //   v2 pow(0.15): urinami-san confirmed "ローズになった".
     //   v3 fixed 0.35: too much distortion — reverted.
-    //   urinami-san: 歪んじゃダメ。DI is clean. Body without distortion.
-    //   v4: 0.5 — still too much distortion.
-    //   v5: 0.65 — "歪むちょっと前" = just before distortion onset.
-    //   DI should be clean so amp adds distortion only on accents.
+    //   urinami-san: 歪んじゃダメ (qRange 過大時の "破裂的" 歪みは不可)。
+    //   v4: 0.5 — still too much (破裂的) distortion.
+    //   v5: 0.65 — "歪むちょっと前" = just before unwanted breakup onset.
+    //   ⚠️ 訂正 (2026-04-25): 旧コメント "DI is clean. amp adds distortion only on
+    //   accents" は誤った前提だった。実機 Rhodes DI は完全 clean ではなく
+    //   bass で軽い passive saturation (Münster 2014, Falaize 2017, Rhodes Super
+    //   Site の "pickup-generated overdrive") が必ず出る。urinami「歪んじゃダメ」
+    //   は qRange 過大時の **破裂的歪み**を avoid する文脈であって、bass の自然な
+    //   passive saturation まで殺してはいけない。詳細:
+    //   [[DIでもPU非線形のg'(q)非対称クリップでbassのpassive saturationは生成される]]
     // 2026-04-23 A-3 試行 (pow 0.8): 音量逆U字に部分効果 (両端 +0.7-0.9 dB)
     //   だが逆U字構造は残存。LUT normalize 相殺が支配。v2 (pow 0.15) に revert。
     //   詳細: notes/permanent/2026/Rhodes物理モデリングの音量逆U字は...
