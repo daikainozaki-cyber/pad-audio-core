@@ -2,13 +2,20 @@
 // E-PIANO AudioWorklet PROCESSOR
 // ========================================
 // All DSP runs sample-by-sample inside process(). No Web Audio nodes.
-// Modal synthesis (tine) → PU nonlinear (LUT) → coupling HPF
-// → [amp: harp LCR (5700Hz) → preamp → tonestack → V2B → V4B → poweramp → cabinet]
-// → [DI: transparent output (no cable LCR)]
+//
+// Signal flow (実装順):
+//   Modal synthesis (tine + tonebar + beam modes)
+//     → PU nonlinear (LUT, optional 2x oversampling)
+//     → coupling HPF (PU-tine electromagnetic coupling)
+//     → harp summing (parallel ÷3 wiring)
+//     → mainOut bus
+//     → [Amp path: harp LCR 5700Hz → preamp → tonestack → V2B → V4B → poweramp → cabinet]
+//     → [DI path: transparent (no cable LCR)]
+//     → Tremolo (mainOut 後の post-effect。アンプ前段ではない)
 //
 // 3 axioms: ①process() self-contained ②Float32Array for-loops only ③GC zero
 //
-// Design: urinami-san — "tines are near-pure sine waves; harmonics come from pickup and amp saturation"
+// Design: うりなみさん — "tines are near-pure sine waves; harmonics come from pickup and amp saturation"
 // Architecture: PAD DAW Phase 1-4 SoA pattern (GC zero, no new/filter/forEach in process())
 
 // --- Constants ---
@@ -23,9 +30,16 @@ var TWO_PI = 2 * Math.PI;
 // The velocity dq/dt is computed analytically from oscillator cos(phase) × omega.
 // PU_EMF_SCALE absorbs: N_coil, 2×a_b²×U₀×ΔU×Rp, H_p^mag, unit conversions.
 //
-// Calibration target: Rob Robinette AB763 measurement — 74mV RMS at amp input
-// for typical Rhodes chord playing (= cable signal before input jack divider).
-// Single PU forte ≈ 50-100mV peak → harp ÷3 → ~25mV per note at output.
+// Calibration target: Rob Robinette AB763 — 74mV RMS at amp input for chord playing.
+// Single PU forte ≈ 50-100mV peak → harp ÷3 → ~25mV per voice.
+//
+// 注意: この target は tineAmp = 0.06 (1.5mm/25mm, Falaize Fig 10a 直訳) 前提で
+//   PU_EMF_SCALE = 0.0022 を導出した値。2026-03-25 に tineAmp を 0.12 へ倍化
+//   (Gabrielli H2/H3 スペクトル整合) → PU_EMF_SCALE は 0.0011 に半減して
+//   出力レベルを保つ線形補正のみ実施。calibration target 自体の 74mV 目標は
+//   そのまま採用しているが、目標値の物理的再評価（H2/H3 一致条件下で本当に
+//   74mV RMS が正しいか）は未済。うりなみさん耳判定で「現状音 OK」確定のため
+//   優先度は低いが、次回 PU 系を触る時に再校正する。
 //
 // Note: omega in process() is radians/SAMPLE (not radians/sec).
 // Physical velocity = tineVelocity × sampleRate. Absorbed into PU_EMF_SCALE.
@@ -58,13 +72,17 @@ var TWO_PI = 2 * Math.PI;
 //
 // With tineAmp=0.06 (physical: 1.5mm/25mm), omega~0.03, tipFactor~1.0, gPrime~0.3:
 //   puOut = 0.06 × (0.3 × 0.03) × 1.0 × puEmfScale = 0.00054 × puEmfScale
-//   Need 0.056 → puEmfScale ≈ 104 → PU_EMF_SCALE = 104/fs ≈ 0.0022
+//   Need 0.056 → puEmfScale ≈ 104 → PU_EMF_SCALE = 104/fs ≈ 0.0022 (2025-Q4 時点)
 //
-// Recalibrated from 0.00044: tineAmp target changed 0.3 → 0.06 (physical displacement).
-// Linear gain increase (0.3/0.06 = 5×) compensates. Does not affect harmonic structure.
-// 2026-03-25: halved from 0.0022 → 0.0011 (tineAmp doubled 0.06→0.12).
-// Linear gain adjustment only — does not affect harmonic structure.
-var PU_EMF_SCALE = 0.0011; // Design target (Rhodes 74mV RMS). Monitor [CLIP] logs.
+// 線形補正の歴史:
+//   0.00044 → 0.0022   tineAmp target 0.3 → 0.06 へ物理修正 (5× 線形補償)
+//   0.0022  → 0.0011   tineAmp 0.06 → 0.12 (2026-03-25, Gabrielli H2/H3 整合) で半減
+//
+// 注意: 0.0011 は tineAmp 0.06 前提の校正式に「× 0.5」の線形補正を当てた値で
+//   あり、tineAmp 0.12 環境下で Robinette 74mV RMS target を満たすかは未再検証。
+//   うりなみさん耳判定で出力レベル OK のため運用継続。次回 PU 系再設計時に
+//   tineAmp 0.12 ベースで calibration を再導出する。
+var PU_EMF_SCALE = 0.0011; // Linear correction from 0.0022 (2026-03-25). Monitor [CLIP] logs.
 
 // --- Harp wiring (Rhodes 73-key: groups of 3 parallel, 24 groups in series) ---
 // Single note: only 1 PU active in its parallel group of 3.
@@ -405,8 +423,17 @@ function puGapMm(midi, voicing) {
   //
   //   Physics: SM voicing range 1/16"-1/8" (1.588-3.175mm)。
   //   Dyno-era custom voicing は SM spec より更に詰めることで punchy/bell 感を出す。
-  //   0.6mm は v1 (0.794 unified) より詰めるが、C-1/C-2 後は escapement clamp
-  //   で bass tine amplitude が適切にスケール、LUT qRange 0.45 で 振幅収まる。
+  //   0.6mm は v1 (0.794 unified) より詰める。bass tine amplitude の暴走抑制は
+  //   現在は escapement clamp ではなく以下 2 経路で行う:
+  //     1. velScaled の DR scaling (L739): velScaled = velocity^(0.5+0.5·escDynamic)
+  //        bass は escapement 大 → 指数 1.0 の線形 DR、treble は escapement 小 →
+  //        指数 0.6 で DR 圧縮。bass を直接潰さず DR の幅で制御。
+  //     2. PU LUT qRange (key 別 0.40-0.55) — 振幅が LUT 端に到達した分は
+  //        非線形飽和 (実機 PU の磁気回路飽和に相当) で吸収。
+  //   Output 側 escapement clamp (escNorm = escMm/25 で result を頭打ち) は
+  //   2026-04-07 に DISABLED (L828-836)。clamp は hammer 側 travel の制限であって
+  //   tine displacement の制限ではないという物理修正で削除済み。
+  //   うりなみさんの耳判定 (2026-04-25): ff で破裂感無し、現状で安定。
   //
   // Physics: SM voicing range is 1/16"-1/8" (1.588-3.175mm) adjustable.
   // Well-voiced Rhodes sits closer than SM max. Dyno-voiced goes even closer.
@@ -428,6 +455,10 @@ function puGapMm(midi, voicing) {
   }
 
   // 'dyno' (default) — Dyno-voiced curve
+  // 2026-04-25 D-12 reverted: bass anchor を 0.50mm まで詰めても out RMS は
+  //   +0.15 dB しか改善せず。gap 以外の rate-limiter が後段で支配的と判明。
+  //   D-3 curve (key1=0.6mm → key30=0.794mm) に revert。詳細:
+  //   audits/d12-baseline-2026-04-25/baseline.md 参照。
   if (key <= 30) {
     // Bass: taper from 0.6mm (key 1, C0) to 0.794mm (key 30, D3)
     //   was: 1.1mm → 0.794mm (factory)
@@ -444,8 +475,10 @@ function puGapMm(midi, voicing) {
 // --- Escapement distance (SM Figure 4-2) ---
 // Gap between hammer tip and tine at rest. Controls maximum tine displacement
 // and effective dynamic range per register.
-// Bass: 6.35-9.53mm (avg 7.94), Treble: 0.79-2.38mm (avg 1.59).
-// 8× variation across keyboard.
+// Bass: 6.35-9.53mm (range avg 7.94), Treble: 0.79-2.38mm (range avg 1.59).
+// 実装は avg-to-avg 線形補間: 7.94mm (key 1) → 1.59mm (key 88) ≈ 5× variation。
+// 「8× variation」は range max/min (9.53/0.79) の絶対比であって実装の
+// keyboard-wide スケール比ではない (range avg 同士は約 5×)。
 function escapementMm(midi) {
   var key = midi - 20;
   if (key < 1) key = 1; if (key > 88) key = 88;
@@ -543,28 +576,6 @@ function getHammerParams(midi, velocity) {
   return { Tc: Tc, relMass: relMass, cor: cor_v, spectralBeta: spectralBeta, alphaMax: alpha_max };
 }
 
-// --- Per-key PU vertical offset (Lver) ---
-// A well-voiced Rhodes has per-key PU adjustment via the voicing screw.
-// Physical basis:
-//   - Bass (large displacement): Lver small → tine stays centered in PU field
-//     → cleaner fundamental, avoids asymmetric clipping
-//   - Mid: moderate Lver → standard Rhodes character (even harmonics from asymmetry)
-//   - Treble (small displacement): larger Lver → even small oscillations
-//     produce asymmetry in g'(q) → maintains bell character
-//
-// Default PU Lver from data: 1mm (normalized: 0.04). The global pickupSymmetry
-// slider is additive on top of this per-key curve.
-// Returns an additive offset to Lver (in normalized PU coordinates).
-function perKeyLverOffset(midi) {
-  var key = midi - 20;
-  if (key < 1) key = 1; if (key > 88) key = 88;
-  var t = (key - 1) / 87; // 0 = lowest, 1 = highest
-  // Smooth curve: bass=−0.02, mid=0 (neutral), treble=+0.03
-  // Uses physics: bass needs centered (less asymmetry for large displacement),
-  // treble benefits from offset (more asymmetry for small displacement)
-  return -0.02 + t * 0.05;
-}
-
 function hasTonebar(midi) { return midi > 27; }
 
 function tonebarPhase(midi) {
@@ -649,8 +660,15 @@ function tipDisplacementFactor(midi) {
 // Material (ASTM A228 spring steel): E = 180 GPa, r = 1mm (Falaize Table 4)
 // Calibration: A4 (Falaize, Fig 10a) → ~1.0mm displacement at forte (500N, 30g hammer)
 //
-// Hammer velocity: v_hammer = VELOCITY_SCALE × √(MIDI_velocity)
-// (sqrt models the mechanical advantage of the key mechanism)
+// Hammer velocity → tine amplitude:
+//   旧: A ∝ √(velocity) (鍵盤メカニカル・アドバンテージ近似)
+//   現: A ∝ velScaled (D-1, 2026-04-23 で線形化)。詳細は computeTineAmplitude() の
+//       velScaled 計算箇所参照。
+// 線形化の物理根拠: v_tine = 2·m_hammer·v_hammer/(m_hammer+m_tine) は v_hammer
+//   に線形、A = v_tine/ω も線形。sqrt は人工的な DR 圧縮で、うりなみさん 2026-04-23
+//   「強く弾くと潰れる」「物理で解決できたらいい」を受けて撤去。
+// escapement DR は別経路 (velScaled = velocity^(0.5+0.5·escDynamic)) で
+//   bass 1.0 / treble 0.6 の指数として現役。
 
 // --- Per-key tine vibration amplitude (Euler-Bernoulli cantilever beam) ---
 // NOT a scale factor. Each key computed from its OWN physical parameters:
@@ -659,7 +677,11 @@ function tipDisplacementFactor(midi) {
 //   phi(midi) = mode shape at striking point (varies with L and xs)
 //   A(midi) = √(m_hammer / k_eff) × √(velocity) × phi
 //
-// Returns dimensionless amplitude in LUT coordinates (A4 forte ≈ 0.3).
+// Returns dimensionless amplitude in LUT coordinates.
+//   A4 forte target ≈ 0.12 (2026-03-25 以降。L820 の最終 multiply 0.12 が SSOT)
+//   旧コメント「A4 forte ≈ 0.3」は Falaize Fig 10a 直訳 (1.5mm/25mm = 0.06) 時代の
+//   メモが残ったもの。tineAmp は 0.06 → 0.12 に倍化 (Gabrielli H2/H3 整合) して
+//   おり、現在の SSOT は 0.12。
 // This is NOT linear scaling — each key's stiffness, mass, and geometry
 // are computed independently from the beam equation.
 //
@@ -708,21 +730,33 @@ function tuningMassKg(midi) {
 // Cached A4 effective mass (beam modal + tip tuning mass)
 var TINE_M_EFF_A4 = 0;
 
+// hallMassCorrection — DEAD FUNCTION (呼び出し箇所なし)
+//   実装は return 1.0 固定。process() / computeTineAmplitude() / 他いずれからも
+//   呼ばれていない。
+//
+// 残置理由 (設計意図のアーカイブ):
+//   Hall (1986) "Piano string excitation in the case of small hammer mass" は
+//   軽 hammer / 重 string (piano) を仮定する。Rhodes は OPPOSITE (heavy hammer
+//   30g / light tine 0.3g) で n_max = 0.0073 → 全 beam mode を 3% 未満に潰し、
+//   Gabrielli 2020 / Shear 2011 の実測 (-15 to -25 dB の audible beam modes) と
+//   矛盾する。よって Rhodes には Hall correction は inapplicable と確定。
+//   Beam mode 振幅は spatial ratio (FEM mode shape) × halfSineEnvelope
+//   (hammer spectrum) で純物理に決定する経路に切り替えた。
+//
+// 復活 NG: Rhodes 物理 (重 hammer / 軽 tine) と Hall 仮定 (軽 hammer / 重 string)
+//   は前提が逆。再有効化する場合は Hall 式ではなく Rhodes 比率に合った別モデル
+//   (例: 慣性モデル) を新規実装する。
 function hallMassCorrection(midi, freqRatio) {
-  // Disabled: returns 1.0 for all modes.
-  // Physics justification: Rhodes hammer >> tine mass. Hall's piano model
-  // (m << M) gives n_max ≈ 0.007, killing all partials. This contradicts
-  // measured Rhodes spectra (Gabrielli 2020, Shear 2011) which show
-  // audible beam modes at -15 to -25 dB.
+  // dead state — 呼び出し箇所なし、return 1.0 固定。上のブロックコメント参照。
   return 1.0;
 }
 
 // D-11 (2026-04-25, 撤回記録):
-// tine amplitude tanh soft-clip を試したが urinami 耳判定「0 のほうが良い」で
+// tine amplitude tanh soft-clip を試したが うりなみさん耳判定「0 のほうが良い」で
 // 撤回。tanh は amplitude compression のみで harmonic 生成を伴わず Rhodes bass
 // bark は再現できない。現モデルは D-1 (sqrt 撤去) + PU LUT 非線形で bass ff が
 // 既に自然に圧縮されており、追加の pre-PU saturation は不要。
-// D-12 (次の試行) は urinami 仮説「低音側 PU のほうが歪みやすい」に基づき
+// D-12 (次の試行) は うりなみさん 仮説「低音側 PU のほうが歪みやすい」に基づき
 // per-key PU LUT の非線形を強化する方向。実装経路は D-11 と異なる (別関数)。
 
 function computeTineAmplitude(midi, velocity) {
@@ -766,16 +800,22 @@ function computeTineAmplitude(midi, velocity) {
   //   pp/mf が適切に静かになり pp→ff の DR が拡大する方向。
   var A_raw = Math.sqrt(m_hammer / k_eff) * velScaled * phi;
 
-  // 2026-04-06: couple hammer compliance (alphaMax) into displacement.
-  // Codex audit: K_H varies 10-15x (Shore 30→wood) but was NOT in this path.
-  // Physics: soft bass hammer (low K_H) → larger Hertz deformation (alphaMax) →
-  //   tine receives more impulse → more physical displacement.
-  // alphaMax = (5 m_eff v² / (4 K_H))^0.4 — already computed in getHammerParams.
-  // IMPORTANT: use fixed velocity (0.5) for compliance comparison only.
-  //   alphaMax depends on v0^0.8 — velocity is already in velScaled.
-  //   We only want the K_H and m_eff variation across the keyboard.
-  var hammerRef = getHammerParams(midi, 0.5); // fixed vel for compliance ratio
-  var alphaScale = hammerRef.alphaMax;
+  // 2026-04-06: getHammerParams() の alphaMax を hammerRef 経由で取得し
+  //   alphaScale 変数に保持している (下行)。
+  //   TINE_A4_ALPHA も A4 cache 構築時に保存している (L800)。
+  //
+  // 注意: alphaScale / TINE_A4_ALPHA は **dead state** (2026-04-10 以降)。
+  //   この 2 値を使った amplitude 補正 (alphaNorm) は撤去済み (L825-836 で
+  //   詳細記述)。計算自体は毎 noteOn で実行されているが結果は破棄される。
+  //   将来 hammer compliance を物理的に再導入する時のフックとして残置。
+  //
+  // 復活 NG (現状): alphaMax は hammer-tine 圧縮距離であって運動量ではない。
+  //   tine 振幅は運動量保存 m·v·(1+COR) で決まるため alphaMax 直接 multiply は
+  //   物理的に逆 (実測: wood C5+ がほぼ inaudible になった)。Per-zone COR/COR_A4
+  //   なら ~1.16 for wood で物理整合するが、現 A_raw + PU 非線形で うりなみさん耳
+  //   判定 OK のため未実装。
+  var hammerRef = getHammerParams(midi, 0.5); // dead 計算経路 (alphaNorm 撤去済)
+  var alphaScale = hammerRef.alphaMax;        // 結果は使わない (B4 dead state)
 
   // Compute A4 reference (once) for LUT coordinate normalization
   if (TINE_A4_RAW === 0) {
@@ -884,9 +924,23 @@ function lutLookup(lut, x) {
   return lut[idx] + frac * (lut[idx + 1] - lut[idx]);
 }
 
-// --- 2x oversampled LUT lookup (matches WaveShaperNode oversample='2x') ---
-// Reduces aliasing from nonlinear stages (preamp, poweramp).
-// Method: linear-interpolate upsample → 2x LUT → 3-tap halfband downsample.
+// --- LUT lookup with 2-tap pseudo-oversampling (cheap aliasing softener) ---
+//
+// 旧コメント: "2x oversampled LUT, 3-tap halfband filter, matches
+//   WaveShaperNode oversample='2x'" → 嘘なので訂正:
+//
+// 実装の真の中身:
+//   1. 中点 mid = (prev + x) / 2 (線形補間で 2x upsample 相当)
+//   2. LUT を mid と x の 2 点だけで評価 (y0, y1)
+//   3. 重み平均 y0 * 0.25 + y1 * 0.75 で「ダウンサンプル」
+//
+// 物理的には 2-tap の非対称 IIR-like 重み付けであって proper halfband filter
+//   ではない。3-tap halfband / WaveShaperNode 'oversample=2x' の品質には到達
+//   しない。aliasing 抑制効果は限定的 (高次倍音域で 6-10 dB 程度の緩和に留まる)。
+//
+// 採用理由: GC zero / 1 sample state (_os2x_prev) / branch-free のコスト要件を
+//   満たす。うりなみさん耳判定で現状の音質 OK のため運用継続。本格的な oversample が
+//   必要になったら polyphase FIR halfband (4-tap 以上) に置換する。
 // Per-voice state: previous input sample (for interpolation).
 var _os2x_prev = new Float32Array(MAX_VOICES * 2); // [preamp_prev, poweramp_prev] per voice
 var _OS2X_PREAMP = 0;
@@ -1185,18 +1239,31 @@ function computePickupLUT_Wurlitzer(distance) {
 // Suitcase is left, and it uses the Ge LUT below.
 
 function computePreampLUT_Ge() {
-  // Germanium transistor preamp: Shockley-derived soft knee with bias asymmetry
-  // Physics: I = Is × (exp(V/nVt) - 1), Ge n≈1.2, Vf≈0.3V
-  // Characteristics: earlier compression than Si/tubes, soft/round clipping,
-  // asymmetric (negative clips first → 2nd harmonic → warmth)
-  // Implementation: bias-shifted tanh. Asymmetry emerges from DC offset,
-  // not separate k values (Codex recommendation, matches BJT LUT pattern L1086).
+  // Dead function — kept for A/B reference only, not called by active chain.
   //
-  // 2026-04-22: Peterson 80W Suitcase schematic (fig11-8/11-9) を精読した結果、
-  // Suitcase の preamp は 2N3392 Si NPN 2 段 (Germanium ではない)、poweramp は
-  // 2N0725 Si BJT push-pull OCL (output transformer なし) であることが判明。
-  // Phase 1 では preamp を computePreampLUT_Si2N3392_2stage() に切替。
-  // poweramp / output の Ge→Si 訂正は Phase 5 で実施。
+  // 2026-04-22 Phase 1 で Suitcase preamp の正体は Si NPN 2N3392 2 段
+  // (Peterson 80W fig11-8 Q1, Q2) と確定し、active chain は
+  // computePreampLUT_Si2N3392_2stage に切替済み。当関数は呼び出しなし
+  // (caller 全消失)。docstring の Ge n≈1.2/Vf≈0.3V 物理は現行 Suitcase
+  // 信号経路と無関係。
+  //
+  // 残置理由: 将来 Wurlitzer 200A や Ge fuzz 系プリの A/B 比較材料、または
+  // うりなみさん耳判定で「Si より Ge の方が好き」となった場合の差し戻し材料。
+  // Re-enable 条件: gePreampLUT 代入先をこの関数に戻す + Phase 5 の
+  // Ge→Si 一括 rename を撤回する。現状その予定なし。
+  //
+  // 実装は bias-shifted tanh (k=1.6, bias=0.08) で、Shockley exact ではなく
+  // Ge の "round/warm" を耳基準で目指した近似。物理の docstring は理想化で、
+  // active chain (Si2N3392) の voicing を保証するものではない。
+  //
+  // 旧コメント (参考): "Germanium transistor preamp: Shockley-derived soft knee
+  //   with bias asymmetry. Physics: I = Is × (exp(V/nVt) - 1), Ge n≈1.2, Vf≈0.3V.
+  //   Asymmetric (negative clips first → 2nd harmonic → warmth)." ← 当関数 dead
+  //   のため active chain への保証ではない。
+  // 2026-04-22 Phase 1 メモ: Peterson 80W Suitcase schematic (fig11-8/11-9) 精読で
+  //   Suitcase preamp = 2N3392 Si NPN 2 段、poweramp = 2N0725 Si BJT push-pull OCL
+  //   (output transformer なし) と判明。poweramp / output の Ge→Si 訂正は Phase 5
+  //   で実施予定。
   var lut = new Float32Array(LUT_SIZE);
   var bias = 0.08;  // DC bias: negative half compresses earlier → even harmonics
   var k = 1.6;      // Softer knee than BJT (k=2.0) or 12AX7. Ge = round/warm
@@ -1381,16 +1448,27 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.vEmDampGain   = new Float32Array(MAX_VOICES);  // current gain (starts 1.0)
     this.vEmDampTarget = new Float32Array(MAX_VOICES);  // converges to emDampRatio
     this.vEmDampCoeff  = new Float32Array(MAX_VOICES);  // pre-computed alpha = e^(-1/(0.025*fs))
-    // D-10 Codex P2 fix (2026-04-25): slider で emDampCoef を変えた時に、すでに
-    // 鳴ってる voice の vEmDampTarget を再計算する必要がある。そのために noteOn
-    // で計算した puDampStrength (velocity, massRatio, puCoupling 複合値) を voice
-    // ごとに保存しておく。msg handler で emDampCoef 変更時に全 active voice の
-    // vEmDampTarget を再計算。A/B/C 比較を hold 中でも効くように。
-    this.vPuDampStrength = new Float32Array(MAX_VOICES);
+    // vPuDampStrength: dead state (D-10/D-11 撤去後の残骸、2026-04-25 深夜).
+    // 経緯: D-10 で「emDampCoef を slider で変えた時に active voice の vEmDampTarget を
+    // 再計算する」P2 fix の準備として noteOn で puDampStrength を保存していた。
+    // しかし同日 UI/msg 経路ごと撤去された (うりなみさん耳判定:「EM ない方がらしい」
+    // 「0 ならいらない」)。
+    // 現状: msg handler に emDampCoef recompute 分岐なし、vPuDampStrength は noteOn で
+    // 書かれるのみ・読まれない。
+    // emDampCoef も constructor で 0.4 固定 (Voicing Lab UI 撤去で msg 送信なし)。
+    // Re-enable 条件: Voicing Lab UI を keys に再追加し、emDampCoef A/B 検証を再開する
+    // 場合のみ。consumer (64PE/MRC/Plugin) は 0.4 default のまま。
+    this.vPuDampStrength = new Float32Array(MAX_VOICES);  // dead state — D-10/D-11 撤去後の残骸
 
-    // Mechanical decay holdoff: matches old engine where decay starts AFTER EM damp phase (75ms).
-    // During holdoff, vAmp stays at initial value. Beam modes ring at full amplitude = bell character.
-    this.vDecayHoldoff = new Uint32Array(MAX_VOICES);   // samples to wait before applying decayAlpha
+    // vDecayHoldoff: dead state.
+    // noteOn で Math.ceil(0.15 * fs) を代入するが、process loop は読まない
+    // ("Mechanical decay starts immediately (no holdoff)" として disabled 済み)。
+    // bell character は別経路 vBeamAttackAlpha が担い、うりなみさん耳判定で
+    // 「bell に放ってる」と確認済み (2026-04-25)。
+    // Allocation を残す理由: noteOn の代入経路を消すと差分が散るため将来 holdoff を
+    // 戻す A/B 用に temp 保持。Re-enable する時は process loop で countdown する分岐を
+    // 復活させる (vAmp の decayAlpha を skip する gate)。現状は復活予定なし。
+    this.vDecayHoldoff = new Uint32Array(MAX_VOICES);   // dead state — see comment above
 
     // Beam attack decay: beam modes start louder (-15dB) and converge to -25dB in 14ms.
     // Per-voice (not per-mode): all beam modes share the same convergence time.
@@ -1414,6 +1492,23 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.vQRange       = new Float32Array(MAX_VOICES); // LUT physical range per voice
     this.vPosScale     = new Float32Array(MAX_VOICES); // velocity-based position → old displacement scale
     for (var i = 0; i < MAX_VOICES; i++) this.vPuLUT[i] = null;
+
+    // Debug-only PU depth stats. Disabled by default; e2e diagnostics enable it
+    // to validate whether physical PU reach naturally matches the ear map.
+    this.debugPuStatsEnabled = false;
+    this.vPuPosPeak    = new Float32Array(MAX_VOICES);
+    this.vPuPosSqSum   = new Float64Array(MAX_VOICES);
+    this.vPuPosCount   = new Uint32Array(MAX_VOICES);
+    this.vDbgTinePosPeak = new Float32Array(MAX_VOICES);
+    this.vDbgTinePosSqSum = new Float64Array(MAX_VOICES);
+    this.vDbgTineVelPeak = new Float32Array(MAX_VOICES);
+    this.vDbgTineVelSqSum = new Float64Array(MAX_VOICES);
+    this.vDbgPuOutPeak = new Float32Array(MAX_VOICES);
+    this.vDbgPuOutSqSum = new Float64Array(MAX_VOICES);
+    this.vDbgCouplingPeak = new Float32Array(MAX_VOICES);
+    this.vDbgCouplingSqSum = new Float64Array(MAX_VOICES);
+    this.vDbgSigPeak = new Float32Array(MAX_VOICES);
+    this.vDbgSigSqSum = new Float64Array(MAX_VOICES);
 
     // --- 2D Whirling: horizontal fundamental oscillator per voice ---
     // Physics: tine cross-section ≈ circular → 2 axes of similar stiffness.
@@ -1602,7 +1697,12 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.tremoloPhase = 0;
     this.tremoloFreq = 4.5;         // Hz (Speed knob, 1-8Hz)
     this.tremoloDepth = 0;          // 0-1 (Intensity knob)
-    this.tremoloShape = 5.0;        // tanh shaping (1=sine, 10=square-ish)
+    this.tremoloShape = 5.0;        // dead control — declared only, not read in process loop.
+                                    // 旧設計では LFO 波形 shaping (1=sine, 10=square-ish) を
+                                    // 想定していたが現 vactrol tremolo は filament thermal LPF +
+                                    // CdS asymmetric response の 3 段で波形が決まり、tanh shape は
+                                    // 不要になった。msg accessor もなし。Re-enable 条件: vactrol を
+                                    // 介さない LFO 直送モードを足す場合のみ意味を持つ。
     this.filamentTempL = 0;         // Filament temperature state (L)
     this.filamentTempR = 0;         // Filament temperature state (R)
     this.filamentTau = 0.0008;      // 1-pole alpha: τ≈25ms (incandescent pilot lamp thermal)
@@ -1671,7 +1771,21 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.pickupSymmetry = 0.50; // urinami-san default: bell sweet spot
     this.pickupDistance  = 0.5;
     this.gapVoicing      = 'dyno'; // 'factory' | 'dyno' (D-3 A/B 切替)
-    this.preampGain     = 1.0;
+    // --- Dead controls (msg accessor あり、process loop 参照なし) ---
+    // preampGain / use2ndPreamp / useTonestack は msg handler で値を受け取るのみ
+    // で、process loop からは一切読まれない。Voicing Lab UI / consumer 互換のため
+    // accessor は残してあるが、値を変えても音は変わらない。
+    //   - preampGain: 旧 Twin v1aGain の global trim 候補だった。Twin DSP 撤去
+    //     (2026-04-13/14 Phase 0.3c/0) で参照消失。Suitcase は gePreampDrive /
+    //     gePreampGain を直接持つので不要。
+    //   - use2ndPreamp: 旧 Twin v2b 段の bypass toggle。Twin 撤去で参照消失。
+    //   - useTonestack: 旧 Twin tonestack の bypass toggle。Twin tsCoeffs 撤去
+    //     (2026-04-14) で参照消失。Suitcase は suitcaseBaxBassCoeff /
+    //     suitcaseBaxTrebleCoeff を常時通すため bypass toggle 自体が無意味。
+    // Re-enable 条件: Twin chain を復活させるか、Suitcase に明示的 bypass を入れる
+    // 場合のみ。現状その予定なし。残しても害はないが、UI 側でこの 3 controls を
+    // 「効く」と誤伝してはならない (うりなみさんへ「効きません」と先に伝える)。
+    this.preampGain     = 1.0;     // dead control — see block above
     // tsBass / tsTreble are reused by Suitcase Baxandall EQ (see
     // suitcaseBaxBassCoeff recompute in param handler). tsMid / brightSwitch
     // were Twin-only and were removed 2026-04-14.
@@ -1680,8 +1794,8 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.volumePot      = 0.5;
     this.springReverbMix = 0.12;
     this.springDwell    = 6.0;
-    this.use2ndPreamp   = true;
-    this.useTonestack   = true;
+    this.use2ndPreamp   = true;    // dead control — see block above
+    this.useTonestack   = true;    // dead control — see block above
     this.useCabinet     = true;
     this.useSpringReverb = false; // OFF until Nyquist aliasing fixed
     this.springPlacement = 'post_tremolo'; // 'post_tremolo' | 'pre_tremolo'
@@ -2039,6 +2153,51 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
       this._updateParams(msg);
     } else if (msg.type === 'allNotesOff') {
       for (var i = 0; i < MAX_VOICES; i++) this.vActive[i] = 0;
+    } else if (msg.type === '_debugResetPuStats') {
+      this.debugPuStatsEnabled = true;
+      for (var i = 0; i < MAX_VOICES; i++) {
+        this.vPuPosPeak[i] = 0;
+        this.vPuPosSqSum[i] = 0;
+        this.vPuPosCount[i] = 0;
+        this.vDbgTinePosPeak[i] = 0;
+        this.vDbgTinePosSqSum[i] = 0;
+        this.vDbgTineVelPeak[i] = 0;
+        this.vDbgTineVelSqSum[i] = 0;
+        this.vDbgPuOutPeak[i] = 0;
+        this.vDbgPuOutSqSum[i] = 0;
+        this.vDbgCouplingPeak[i] = 0;
+        this.vDbgCouplingSqSum[i] = 0;
+        this.vDbgSigPeak[i] = 0;
+        this.vDbgSigSqSum[i] = 0;
+      }
+    } else if (msg.type === '_debugSetPuStatsEnabled') {
+      this.debugPuStatsEnabled = !!msg.enabled;
+    } else if (msg.type === '_debugDumpPuStats') {
+      var rows = [];
+      for (var i = 0; i < MAX_VOICES; i++) {
+        var n = this.vPuPosCount[i];
+        if (n > 0) {
+          rows.push({
+            voice: i,
+            midi: this.vMidi[i],
+            active: this.vActive[i],
+            peak: this.vPuPosPeak[i],
+            rms: Math.sqrt(this.vPuPosSqSum[i] / n),
+            count: n,
+            tinePosPeak: this.vDbgTinePosPeak[i],
+            tinePosRms: Math.sqrt(this.vDbgTinePosSqSum[i] / n),
+            tineVelPeak: this.vDbgTineVelPeak[i],
+            tineVelRms: Math.sqrt(this.vDbgTineVelSqSum[i] / n),
+            puOutPeak: this.vDbgPuOutPeak[i],
+            puOutRms: Math.sqrt(this.vDbgPuOutSqSum[i] / n),
+            couplingPeak: this.vDbgCouplingPeak[i],
+            couplingRms: Math.sqrt(this.vDbgCouplingSqSum[i] / n),
+            sigPeak: this.vDbgSigPeak[i],
+            sigRms: Math.sqrt(this.vDbgSigSqSum[i] / n),
+          });
+        }
+      }
+      this.port.postMessage({ type: '_debugPuStats', voices: rows });
     } else if (msg.type === '_debugDumpPreampLUT') {
       // Phase 1 test hook: worklet 内の実 LUT を main thread から取得する。
       // numeric 比較で worklet と fallback が同一 LUT を使っているか検証する用途。
@@ -2055,8 +2214,8 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
         var m = midis[mi];
         factoryGaps[m] = puGapMm(m, 'factory');
         dynoGaps[m] = puGapMm(m, 'dyno');
-        var lverOff = perKeyLverOffset(m);
-        var lhorOff = 0;
+        var lverOff = (m >= 0 && m < 128) ? KEY_VARIATION[m * 3] : 0;
+        var lhorOff = (m >= 0 && m < 128) ? KEY_VARIATION[m * 3 + 1] : 0;
         var qRange = 0.45;
         var factoryLut = (this.puModel === 'dipole') ?
           computePickupLUT_dipole(this.pickupSymmetry, this.pickupDistance, factoryGaps[m], qRange, lverOff, lhorOff) :
@@ -2225,9 +2384,20 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     var keyIdx = midi - 21;
     var nyquist = fs * 0.5;
 
-    // === VELOCITY-BASED MODAL AMPLITUDE (energy conservation) ===
-    // Hammer impulse excites each mode with velocity ∝ φ_n(xs) × H(f_n) × Hall.
-    // Energy: E_n ∝ V_n². Normalize Σ V_n² = 1 (finite hammer KE).
+    // === VELOCITY-BASED MODAL AMPLITUDE (per-mode relative weighting) ===
+    // Hammer impulse excites each mode with velocity weight ∝ φ_n(xs) × H(f_n).
+    // 正規化: モード相対比率を Σ V_n² = 1 に揃える（V_n のモード間バランスを一定に保つ）。
+    //
+    // ⚠️ 絶対 energy は保存していない:
+    //   - 後段で全モードに massScale = sqrt(hammer.relMass) 倍を per-key で乗算 → 全鍵均等ではない
+    //   - 最終振幅は別系統 vTineAmp (computeTineAmplitude) が velocity 曲線を支配
+    //   - vAmp[] が表すのは「モード同士の相対比率」のみ。ここで Σ V_n² = 1 は absolute energy 制約ではない
+    //
+    // なぜ「相対比率の正規化」で十分か:
+    //   - 絶対音量は vTineAmp + EMF 経路 (vVelScale) + LUT + suitcase chain でまとめて決まる
+    //   - per-mode の bias を抑えるためだけに Σ V_n² = 1 が必要 (beam mode が暴れるのを防ぐ)
+    //
+    // うりなみさん耳判定 (2026-04-25 確認済): 全鍵均等で OK、現状音 OK。
     var H_fund = halfSineEnvelope(f0, hammer.Tc, hammer.spectralBeta);
     var vW_fund = 1.0;
     var totalE = vW_fund * vW_fund;
@@ -2289,10 +2459,22 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
       this.vAmp[base + 1] = 0;
       this.vDecayAlpha[base + 1] = 0;
     } else if (hasTB) {
-      // --- Old slot 1 model DISABLED (2026-03-29) ---
-      // TB eigenfreq (e.g. 164Hz at F4) is BELOW fundamental (349Hz) → sounds like
-      // a separate low sine wave, creates "muddy cylinder" perception.
-      // TB off until coupled model or correct parameters are implemented.
+      // --- Legacy single-mode tonebar (active when coupledTonebar = false) ---
+      //
+      // 状態整理 (2026-04-25 更新):
+      //   - coupled two-component model は上のブロックで実装済 (Münster 2014:
+      //     transient at TB eigenfreq × enslaved at tine f0, 30% amplitude, 5ms crossfade)
+      //   - this.coupledTonebar = false が default ("no perceptual difference confirmed
+      //     2026-03-27")
+      //   - したがって hasTB な鍵では、この else if 側 (legacy single-mode TB OFF) が active
+      //   - 効果: slot 1 = 完全無効 (vOmega/vAmp/vDecayAlpha 全 0)。tonebar の倍音的寄与は
+      //     beam modes (slot 2+) と coupling chain だけで生成される
+      //
+      // うりなみさん耳判定 (2026-04-25 確認済): TB 倍音いいと思う = 現状で OK。
+      // → coupled も legacy single-mode (eigenfreq 単独) も使わず、両方 OFF が ear-best。
+      //
+      // 旧コメント "Old slot 1 model DISABLED... coupled モデル待ち" は coupled 実装前の名残。
+      // 現状は "実装済だが perceptual difference 無しなので default OFF" が正確。
       this.vOmega[base + 1] = 0;
       this.vPhase[base + 1] = 0;
       this.vAmp[base + 1] = 0;
@@ -2365,14 +2547,18 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
       if (H_ratio > 1.0) H_ratio = 1.0;
       // Beam boost: compensates for FEM+halfSine underestimation of beam coupling.
       // Base 3.0 (spring + Hertz), scaled by hammer filtering.
-      // Cap: beam mode velocity weight must not exceed 0.3 (≈ -10dB re fundamental).
-      // Real Rhodes beam modes: -15 to -25dB (Gabrielli 2020).
-      // Without cap: bass beam1 reaches 0dB → chord intermod → pitch confusion.
+      // Cap: beam mode velocity weight is clamped to ±BEAM_ATTACK_CLAMP (= 0.25, ≈ -12dB
+      // re fundamental). Real Rhodes beam modes: -15 to -25dB (Gabrielli 2020) と
+      // 整合範囲。Without cap: bass beam1 reaches 0dB → chord intermod → pitch confusion.
       var beamBoost = 3.0 * (1.0 - 0.7 * H_ratio);
       var vW = sr * H_ratio * beamBoost;
-      // Beam attack decay (2026-03-27): beam modes start at -15dB (attack),
-      // fast-decay to -25dB (sustain) in 14ms. This produces the "コリッ" metallic
-      // transient during attack without sustained chord pitch confusion.
+      // Beam attack decay (2026-03-27): beam modes start at ATTACK clamp 0.25 (≈ -12 dB
+      // re fundamental, BEAM_ATTACK_CLAMP)、14 ms かけて SUSTAIN clamp 0.12 (≈ -18 dB,
+      // BEAM_SUSTAIN_CLAMP) まで指数的に減衰させる。これで attack の "コリッ" 金属的
+      // transient を残しつつ、sustain では chord intermod / pitch confusion を回避する。
+      // Reference: Gabrielli 2020 (-15 to -25 dB) と整合範囲。
+      // 旧コメント "-15dB → -25dB" "Cap 0.3 (-10dB)" は実装定数と不一致だったので訂正。
+      // うりなみさん耳判定 (2026-04-25 確認済): 派手さちょうど良い。数値変更不要。
       // Previous -25dB hard clamp killed all attack character (3/25 failure).
       if (vW > BEAM_ATTACK_CLAMP) vW = BEAM_ATTACK_CLAMP;
       if (vW < -BEAM_ATTACK_CLAMP) vW = -BEAM_ATTACK_CLAMP;
@@ -2446,8 +2632,20 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
       }
     }
 
-    // Beam attack decay: converge from ATTACK_CLAMP to SUSTAIN_CLAMP in 14ms.
-    // After this window, beam modes are at chord-safe level. Normal sustain decay continues.
+    // Beam attack decay state setup:
+    // beam mode (slot >= 2) を最初の 14 ms (BEAM_ATTACK_MS) に渡って
+    // ATTACK_CLAMP (0.25, ≈ -12 dB) → SUSTAIN_CLAMP (0.12, ≈ -18 dB) へ
+    // 指数的に収束させるための per-voice 状態:
+    //   vBeamAttackCount[vi] = 残り sample 数 (Uint32, countdown)
+    //   vBeamAttackAlpha[vi] = 1 sample あたりの追加減衰係数 = (SUSTAIN/ATTACK)^(1/N)
+    //
+    // 適用箇所: process loop で beam mode (m >= 2) のみ毎 sample で
+    //   vAmp[base + m] *= beamAttackAlpha;
+    // → normal decay (vDecayAlpha) に加えて beamAttackAlpha も乗算される。
+    //   counter が 0 になれば normal decay のみに戻る。counter 減算は voice 単位で 1 回。
+    //
+    // 効果: attack の "コリッ" 金属的 transient → 14 ms 後に chord-safe sustain。
+    // うりなみさん耳判定 (2026-04-25 確認済): 派手さちょうど良い。
     var beamAttackSamples = Math.ceil(BEAM_ATTACK_MS * 0.001 * fs);
     this.vBeamAttackCount[vi] = beamAttackSamples;
     this.vBeamAttackAlpha[vi] = Math.exp(
@@ -2481,10 +2679,25 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     var tipFactor = tipDisplacementFactor(midi);
     this.vTipFactor[vi] = tipFactor;
 
-    // Velocity→physical scale: converts energy-normalized velocity to old EMF scale.
-    // Old scheme: EMF ∝ (disp × ω₀) × tipFactor × puEmfScale → ω₀ was implicit.
-    // New scheme: EMF ∝ vAmp × vVelScale × tipFactor × puEmfScale.
-    // Match condition: vA_fund × vVelScale = 1.0 × ω₀ → vVelScale = ω₀ / vA_fund.
+    // Velocity→physical scale: energy-normalized velocity を old displacement-based EMF
+    // scale に戻す変換係数。
+    //
+    // Old scheme: EMF ∝ (disp × ω₀) × tipFactor × puEmfScale, ω₀ は disp に implicit に乗じていた
+    // New scheme: EMF ∝ vAmp × vVelScale × tipFactor × puEmfScale
+    //
+    // 設計意図 (slot 0 base): vA_fund × vVelScale ≡ ω₀ → vVelScale = ω₀ / vA_fund
+    //
+    // ⚠️ 実際の slot 0 振幅 vAmp[base] = vA_fund × massScale (energy normalize 段で
+    //   massScale 倍される) と vVelScale を掛け合わせると ω₀ × massScale となり、
+    //   設計意図の ω₀ から **massScale 倍だけずれる**。これは per-key relMass weighting
+    //   (hammer-tine 質量比) が EMF 経路にも暗黙的に効いているということで、bug ではなく
+    //   **意図された per-key bias**:
+    //     - massScale = sqrt(hammer.relMass)
+    //     - bass: relMass 大 → massScale 大 → EMF も増幅
+    //     - treble: relMass 小 → massScale 小 → EMF 抑制
+    //   → この暗黙乗算が現状の音量バランスの一部を担っている。
+    //
+    // うりなみさん耳判定 (2026-04-25 確認済): 全鍵均等で OK。massScale 暗黙乗算は残す。
     this.vVelScale[vi] = omega0 / Math.max(vA_fund, 0.01);
 
     var gapMm = puGapMm(midi, this.gapVoicing);
@@ -2533,10 +2746,29 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     //   bass tinePos 0.35 → puInput 0.78 (LUT 78% = 深く非線形ゾーンへ到達、
     //   edge clip は 0.35/0.45=0.78 で safety margin あり)。
     var qRange = 0.45;
-    // Position scale factor: converts velocity-based position to old displacement scale.
-    // Old: tinePosition = 1.0 × sin × envScale (displacement domain)
-    // New: tinePosition = (vA_fund/ω₀) × sin × envScale (velocity/ω domain)
-    // → scale down by ω₀/vA_fund to match old LUT input range.
+    // Position scale factor: velocity domain で計算した tinePosition を、
+    // LUT 入力が期待する old displacement domain のスケールに引き戻す係数。
+    //
+    // 経路 (process loop):
+    //   tinePosition += (env / omega) × sin(phase)
+    //                   ↑ env = vAmp は velocity 振幅 (V_n)。omega 除算で V/ω = displacement
+    //
+    // vPosScale をかける目的:
+    //   velocity 領域から得た tinePosition に omega0 / vA_fund を掛ける
+    //   → vAmp[base] = vA_fund × massScale を含めると、LUT 入力レンジが
+    //     old displacement (tipFactor × sin × envScale ベース) と整合する
+    //
+    // ⚠️ "displacement domain" / "velocity/ω domain" の区別:
+    //   - 計算式 (env/omega)×sin は数学的には displacement (V/ω = X)
+    //   - ただし正規化が velocity 領域 (Σ V_n² = 1) で行われているため、
+    //     amplitude scale は velocity-side reference と紐づいている
+    //   - vPosScale = ω₀/vA_fund はその amplitude reference の差を吸収する
+    //
+    // 値は vVelScale と同じ式 ω₀/vA_fund。ここでも vAmp[base] には massScale 倍が
+    // 暗黙に乗る (上の vVelScale ブロック参照、同じ構造)。
+    //
+    // うりなみさん耳判定 (2026-04-25 確認済): qRange = 0.45 と組み合わせて bass の
+    // passive saturation が出る適正レンジに着地。
     this.vQRange[vi] = qRange;
     this.vPosScale[vi] = omega0 / Math.max(vA_fund, 0.01);
     var lverOff = (midi >= 0 && midi < 128) ? KEY_VARIATION[midi * 3] : 0;
@@ -2552,13 +2784,25 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
       this.vPuLUT_h[vi] = computePickupLUT_horizontal(this.pickupSymmetry, this.pickupDistance, gapMm, qRange, lverOff, lhorOff);
     }
 
-    // --- 2D Whirling: horizontal fundamental oscillator ---
-    // Physics: tine cantilever with ~circular cross-section + spring mass asymmetry.
-    // keyNorm: 0 (bass) to 1 (treble). Bass has more spring effect → more whirl.
+    // --- 2D Whirling: horizontal fundamental oscillator (default OFF) ---
+    //
+    // 状態: this.whirlEnabled = false がデフォルト ("pitch clash investigation
+    // で OFF, 2026-03-29")。下の if 分岐は this.whirlEnabled が ON の時だけ有効。
+    // OFF の時は else 側で vOmegaH = vAmpH = 0 → 2D オービット効果は無し。
+    //
+    // うりなみさん耳判定 (2026-04-25 確認済): default OFF でも shimmer は自然な感じ。
+    // 理由: shimmer 的揺れは別経路で十分供給されている:
+    //   - LUT 非対称性 (puPos の非線形 g'(q))
+    //   - 微小 detuning (KEY_VARIATION の lver/lhor offset)
+    //   - beam mode の inharmonic 成分 (slot 2..)
+    // → 2D whirling は ON にしても顕著な改善は無く、bass で pitch clash を起こすため OFF 維持。
+    //
+    // パラメータ計算は ON 切り替え用に残す (将来 A/B したくなった時のため):
+    //   keyNorm: 0 (bass) → 1 (treble)。bass ほど spring 質量効果大 → whirl 大
+    //   detuning: 0.5-1.5% (Δf/f, bass 側で広い)
+    //   ratio: 15-25% (vertical fundamental に対する horizontal 振幅比)
     var keyNorm = Math.max(0, Math.min(1, (midi - 21) / 87));
-    // Detuning: 0.5-1.5% (bass has larger spring → more asymmetry → larger Δf)
     var whirlDetuning = 0.005 + 0.01 * (1 - keyNorm);
-    // Amplitude ratio: 15-25% of vertical (spring mass creates substantial elliptical orbit)
     var whirlRatio = 0.15 + 0.1 * (1 - keyNorm);
 
     if (this.pickupType !== 'wurlitzer' && this.puModel !== 'dipole' && this.whirlEnabled) {
@@ -2628,6 +2872,19 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.vActive[vi] = 1;
     this.vMidi[vi] = midi;
     this.vAge[vi] = 0;
+    this.vPuPosPeak[vi] = 0;
+    this.vPuPosSqSum[vi] = 0;
+    this.vPuPosCount[vi] = 0;
+    this.vDbgTinePosPeak[vi] = 0;
+    this.vDbgTinePosSqSum[vi] = 0;
+    this.vDbgTineVelPeak[vi] = 0;
+    this.vDbgTineVelSqSum[vi] = 0;
+    this.vDbgPuOutPeak[vi] = 0;
+    this.vDbgPuOutSqSum[vi] = 0;
+    this.vDbgCouplingPeak[vi] = 0;
+    this.vDbgCouplingSqSum[vi] = 0;
+    this.vDbgSigPeak[vi] = 0;
+    this.vDbgSigSqSum[vi] = 0;
     // Tone Balance (per-octave EQ) を voice 出力 gain として保持。未指定で 1.0 (バイパス)。
     this.vOutputGain[vi] = (outputGain !== undefined && outputGain > 0) ? outputGain : 1.0;
   }
@@ -2656,6 +2913,16 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     // Release all voices with this MIDI note
     for (var i = 0; i < MAX_VOICES; i++) {
       if (this.vActive[i] > 0 && this.vMidi[i] === midi && this.vActive[i] !== 3) {
+        // Spring reverb 診断モード用の即時ミュート経路。
+        // 条件: springDiagMuteNoteOff (診断 flag) AND useSpringReverb AND
+        //       springPlacement === 'pre_tremolo'
+        // 通常の note-off は vActive=3 (releasing) に遷移して 15ms 指数減衰させるが、
+        // この診断モードではそれを skip して voice を即停止する:
+        //   - vActive[i] = 0           (voice 完全停止、release を走らせない)
+        //   - vReleaseNoiseAge=0xFFFFFFFF (release noise generator も無効化)
+        // 目的: spring reverb の tail 単独を耳で評価するために、PU 信号と release
+        // 系の残響を瞬時に切る。pre_tremolo placement のときだけ有効 (post 経路は
+        // この診断対象外)。production パスではないので continue で次 voice へ抜ける。
         if (this.springDiagMuteNoteOff && this.useSpringReverb && this.springPlacement === 'pre_tremolo') {
           this.vActive[i] = 0;
           this.vReleaseNoiseAge[i] = 0xFFFFFFFF;
@@ -2666,12 +2933,27 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
         // Do NOT clear biquad states here — causes click from sudden state reset
         // while PU signal is still decaying through the amp chain.
         // Trigger release noise: damper felt contacts vibrating tine → EMF spike.
-        // Amplitude scales with CURRENT tine amplitude (not initial).
-        // Staccato → tine still vibrating hard → louder release noise.
-        // Long sustain → tine decayed → quieter release noise.
-        // Physics: damper impact energy ∝ tine velocity at contact moment.
+        // Amplitude scales with the CURRENT envelope amplitude (vTineAmp × emDampGain
+        // × releaseGain), NOT the instantaneous mechanical velocity at contact.
+        // 実装上は modal 合成の瞬時 velocity を読まず、エンベロープ係数の積で代用している。
+        // 結果として:
+        //   Staccato (short hold) → envelope still high → louder release noise.
+        //   Long sustain → envelope decayed → quieter release noise.
+        // うりなみさん耳判定 (2026-04-25 確認済): 現状の音は OK。物理的には velocity 比例が
+        // 正だが、ここでは perceptual に等価な envelope 比例で十分機能している。
+        // "damper impact energy ∝ tine velocity at contact moment" は理想モデルであり
+        // 現実装の挙動説明ではない点に注意。
         var currentAmp = this.vTineAmp[i] * this.vEmDampGain[i] * this.vReleaseGain[i];
-        // All 3 release layers scale with current tine amplitude
+        // Release layers の amplitude を current envelope に基づきセットする。
+        // 重要: 現在 active なのは Layer 1 (thud) のみ。
+        //   - RELEASE_THUD_SCALE  : thud 用、Layer 1 として実音に寄与
+        //   - RELEASE_MID_SCALE   = 0.0 → Layer 2 mid BPF は実質 disabled
+        //   - RELEASE_RING_SCALE  = 0.0 → Layer 3 metallic ring は実質 disabled
+        // いずれも代入は走るがゲイン 0 のため出力に届かない。dead 値は復活させない方針。
+        // うりなみさん耳判定 (2026-04-25):
+        //   「メタリックではないが、ちゃんとリリースの音だと思う。
+        //    インハーモニシティを増やせたら理想」
+        // → thud 単独でリリース感は成立。インハーモニシティ追加は次セッション候補。
         this.vReleaseThudAmp[i] = RELEASE_THUD_SCALE * currentAmp;
         this.vReleaseMidAmp[i] = RELEASE_MID_SCALE * currentAmp;
         this.vReleaseRingAmp[i] = RELEASE_RING_SCALE * currentAmp;
@@ -2814,7 +3096,18 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
       // --- Per-voice synthesis → sum to dry/DI bus ---
       var drySum = 0;
       var diSum = 0;  // DI path: per-voice harp LPF then direct output
-      var sendSum = 0; // reverb send (post-tonestack, pre-V2B)
+      var sendSum = 0; // DEAD: reverb send 変数。Twin removed 2026-04-13 (Phase 0.3c)
+                       // 以降、書き込み先 (V2B 後の tonestack tap) が消滅したため、
+                       // この変数はゼロのまま post_tremolo 分岐に到達する。
+                       // 結果: post_tremolo の if (Math.abs(sendSum) > 0.00001) は
+                       // 永遠に false → wetSignal は計算されない。
+                       // post_tremolo placement は事実上 dead path。
+                       // うりなみさん確認 (2026-04-25):
+                       //   「そもそも UI に post_tremolo は無い、Plate のみ後で
+                       //    別ルーティングに変更済」
+                       // → 復活不要。Plate reverb は別経路で動作している。
+                       // 残置理由は後段の参照を壊さないため (削除には if 条件側の
+                       // 整理が必要、コード変更しない方針で残す)。
       var suitcasePreFxSum = 0; // Suitcase: post-Baxandall/Volume, pre-Ge-preamp (reverb send domain)
       var mechanicalNoiseSum = 0; // acoustic noise: bypasses PU → amp chain entirely
       var tineRadSum = 0; // tine radiation accumulator (delayed separately)
@@ -2967,18 +3260,18 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
         // Release: metallic "damper kiss" — damper bounces on vibrating tine
         //          + broadband damper felt thud
 
-        // Acoustic tine radiation: raw tine vibration heard through air.
-        // Glockenspiel-like, thin, bright, no PU coloring. -40 to -50dB.
-        // tineVelocity already includes envScale (onset + release envelopes).
-        // Acoustic tine radiation: brief metallic shimmer at attack only.
-        // Very thin (HPF ~2kHz), very short (15ms decay), very quiet.
-        // Acoustic tine radiation: raw signal, no HPF (HPF caused residual noise).
-        // Delay (2ms) alone creates phase difference → spatial thickness.
-        // Acoustic tine radiation: physics-based.
-        // Radiation efficiency η ∝ f² (thin rod, diameter << wavelength).
-        // Implementation: differentiation (sample[n] - sample[n-1]) ≈ ×jω.
-        // FIR — no feedback, no state accumulation, no residual noise.
-        // Naturally boosts beam modes, suppresses fundamental. Physics, not workaround.
+        // Acoustic tine radiation: 物理ベース実装。
+        // 旧仕様 (削除済): "brief metallic shimmer at attack only / HPF ~2kHz /
+        //   15ms decay / very quiet" — 残留ノイズの原因となり廃止。
+        //   過去の説明文だったので参照しないこと。
+        // 現仕様: raw tine vibration、HPF なし。
+        //   - Glockenspiel-like, thin, bright, no PU coloring. -40 to -50 dB level.
+        //   - Delay (2ms) 単独で位相差 → 空間的厚み。
+        //   - Radiation efficiency η ∝ f² (細棒、直径 << 波長)。
+        //   - 実装: 差分 (sample[n] - sample[n-1]) ≈ ×jω で d/dt 近似。
+        //   - FIR — feedback なし、state 蓄積なし、residual noise なし。
+        //   - beam mode を自然に持ち上げ、fundamental を抑える。回避策ではなく物理。
+        // tineVelocity は既に envScale (onset + release envelope) を含む。
         if (this.attackNoise > 0) {
           var acousticVel = tineVelocity * this.vVelScale[v] * this.vTipFactor[v] * this.puEmfScale;
           var trDiff = acousticVel - this.vTineRadPrev[v]; // ≈ d/dt ∝ ω → radiation ∝ f
@@ -3075,13 +3368,29 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
         var puOut;
         if (this.vPuLUT[v]) {
           var puPos = tinePosition * this.vPosScale[v] / this.vQRange[v];
-          // (debug removed)
+          if (this.debugPuStatsEnabled) {
+            var puAbs = Math.abs(puPos);
+            if (puAbs > this.vPuPosPeak[v]) this.vPuPosPeak[v] = puAbs;
+            this.vPuPosSqSum[v] += puPos * puPos;
+            this.vPuPosCount[v]++;
+            var tpAbs = Math.abs(tinePosition);
+            if (tpAbs > this.vDbgTinePosPeak[v]) this.vDbgTinePosPeak[v] = tpAbs;
+            this.vDbgTinePosSqSum[v] += tinePosition * tinePosition;
+            var tvAbs = Math.abs(tineVelocity);
+            if (tvAbs > this.vDbgTineVelPeak[v]) this.vDbgTineVelPeak[v] = tvAbs;
+            this.vDbgTineVelSqSum[v] += tineVelocity * tineVelocity;
+          }
           var gPrimeV = lutLookup(this.vPuLUT[v], puPos);
           puOut = gPrimeV * tineVelocity * this.vVelScale[v] * this.vTipFactor[v] * this.puEmfScale;
           // Horizontal contribution (2D whirling)
           if (this.vPuLUT_h[v] && tineHVelocity !== 0) {
             var gPrimeH = lutLookup(this.vPuLUT_h[v], puPos);
             puOut += gPrimeH * tineHVelocity * this.vVelScale[v] * this.vTipFactor[v] * this.puEmfScale;
+          }
+          if (this.debugPuStatsEnabled) {
+            var poAbs = Math.abs(puOut);
+            if (poAbs > this.vDbgPuOutPeak[v]) this.vDbgPuOutPeak[v] = poAbs;
+            this.vDbgPuOutSqSum[v] += puOut * puOut;
           }
         } else {
           puOut = tinePosition; // fallback: no LUT
@@ -3098,11 +3407,21 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
           this.vCouplingState[stateOff] = b1 * puOut - a1 * couplingOut + z2;
           this.vCouplingState[stateOff + 1] = b2 * puOut - a2 * couplingOut;
         }
+        if (this.debugPuStatsEnabled) {
+          var coAbs = Math.abs(couplingOut);
+          if (coAbs > this.vDbgCouplingPeak[v]) this.vDbgCouplingPeak[v] = coAbs;
+          this.vDbgCouplingSqSum[v] += couplingOut * couplingOut;
+        }
 
         // 2026-04-23 Tone Balance fix: per-voice output gain を PU/coupling 後に乗算。
         // midi-input.js の velocity 乗算 (pp 表現潰し) から分離されて voice 出力段で適用。
         // amp/DI 両経路に一律に効く。pp の物理スケーリングは保たれる。
         var sig = couplingOut * this.vOutputGain[v];
+        if (this.debugPuStatsEnabled) {
+          var sigAbs = Math.abs(sig);
+          if (sigAbs > this.vDbgSigPeak[v]) this.vDbgSigPeak[v] = sigAbs;
+          this.vDbgSigSqSum[v] += sig * sig;
+        }
 
         if (this.useCabinet) {
 
@@ -3201,7 +3520,13 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
 
           // --- Germanium preamp (Shockley soft knee, shared chain) ---
           ampSig *= this.gePreampDrive;
-          // 2x oversampled LUT (anti-aliasing for nonlinear waveshaper)
+          // Pseudo-2x: 2-tap 線形補間平均による軽量 anti-aliasing。
+          // 厳密な 2x oversampling (zero-stuff → upsample LPF → nonlinearity →
+          // downsample LPF) ではなく、現サンプルと直前サンプルの平均を nonlinearity
+          // に通し、出力同士をさらに平均する近似実装。
+          // 効果: 高周波の折り返しを軽減するが、教科書的 2x OS の anti-alias 性能には
+          // 達しない。CPU コスト優先での妥協。
+          // うりなみさん耳判定 (現状音 OK 確認済) のため、本格 OS 化は次以降の課題。
           var geHalf = (ampSig + this.gePreampPrevSample) * 0.5;
           geHalf = lutLookup(this.gePreampLUT, geHalf);
           this.gePreampPrevSample = ampSig;
@@ -3279,7 +3604,9 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
           lfC *= cDrive * (1.0 + 0.15 * this.couplingSmooth);  // Extra drive for lows (0.3→0.15: 透明感)
           hfC *= cDrive;
           var paIn = lfC + hfC;
-          // 2x oversampled Ge push-pull LUT (anti-aliasing)
+          // Pseudo-2x (Ge push-pull LUT): 上の Ge preamp と同じ 2-tap 線形補間平均方式。
+          // zero-stuff + アップサンプル LPF を伴う本来の 2x OS ではない、軽量 anti-alias。
+          // 詳細・トレードオフは Ge preamp 側コメント参照。
           var paH = (paIn + this.gePaPrevSample) * 0.5;
           paH = lutLookup(this.gePowerampLUT, paH);
           this.gePaPrevSample = paIn;
@@ -3311,7 +3638,15 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
         }
 
         mainOut = ampSig * this.cabinetGain;
-        // 2026-04-24: Suitcase は Stage の約 2x (urinami「Suitcase 2倍でいい」)
+        // 2026-04-24: Suitcase の最終出力は finalOutputGain = SUITCASE_FINAL_GAIN (=0.5)。
+        // Stage の finalOutputGain は 0.7 なので、この finalOutputGain 単独では
+        // 「Stage > Suitcase」の関係になる (0.7 vs 0.5) — 直感とは逆。
+        // 「Stage の約 2x」はこの 1 段だけの話ではなく、Suitcase 経路全体での総合比較:
+        //   Voicing Lab : DRIVE 2.5 × MAKEUP 1.5 × PRE-TRIM 0.42 ≈ 1.575
+        //   suitcasePreFxTrim と HARP_PARALLEL_DIV 込みで Stage 比 約 3.4x。
+        // うりなみさん耳判定 (2026-04-24):「デカすぎ、0.5 くらいかな」で着地。
+        // → finalOutputGain=0.5 の数値だけ見て「Stage より小さい」と読まない。
+        //   実音量は Voicing Lab + preFxTrim + 並列除算を全部積んだ結果で決まる。
         finalOutputGain = SUITCASE_FINAL_GAIN;
       } else {
         // === DI PATH: no cable LCR, transparent output ===

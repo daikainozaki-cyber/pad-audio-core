@@ -41,6 +41,47 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 # 履歴
 
 
+## [2026-04-25] {pending-sha} — D-12: コメント整合性監査と書き直し (29 件、コード機能不変)
+
+### Audit
+- 4 並列 agent で全 3535 行のコメントを実装と照合監査
+- BLOCKER 12 件 + MAJOR 17 件 = 29 件の乖離を発見
+- 支配的パターン: 「state allocated → noteOn 書き込み → process loop で読まれない or msg path 削除済 → コメントは『効いている』」
+- 詳細: `デジタル百姓総本部/プロジェクト/PAD DAW/audits/d12-baseline-2026-04-25/comment_audit.md`
+
+### Fix (コメントのみ、コード変更なし)
+- escapement clamp 嘘 (L408-409): clamp は 2026-04-07 disabled 済、抑制経路は velScaled DR + LUT qRange と訂正
+- A4 forte 数値ずれ: 0.3 → 0.12 (2026-03-25 SSOT) に更新
+- hallMassCorrection / alphaScale / vDecayHoldoff / vPuDampStrength / tremoloShape / preampGain 等 dead state を「dead 宣言 + 経緯 + Re-enable 条件」フォーマットで整理
+- sqrt mechanical advantage コメント: D-1 線形化済を明記
+- escapement「8× variation」: 実装は avg-to-avg の 5× ratio に訂正
+- 「2x oversampled, halfband」: 実装は 2-tap 平均、proper halfband ではないと訂正 (3 箇所: lutLookup2x / Ge preamp / Ge poweramp)
+- Σ V_n² = 1 energy 保存: massScale 倍で絶対 energy 保存していない事実を明記
+- beam dB 表記: -15/-25 → -12/-18 (実装定数 BEAM_ATTACK_CLAMP=0.25 / BEAM_SUSTAIN_CLAMP=0.12) に整合
+- whirl / coupled tonebar: default OFF + 現状音 OK の事実を明記
+- damper impact ∝ velocity 偽装: 実装は envelope amplitude と訂正
+- damper Layer 2/3: SCALE=0.0 で disabled、Layer 1 (thud) のみ active と明記
+- sendSum: Twin removed で dead bus、post_tremolo placement は機能していないと明記
+- Suitcase finalOutputGain 「2x」: 単独では Stage 0.7 vs 0.5 で逆、Voicing Lab 込みで Stage 比 約 3.4x と明記
+- spring diag mute / 旧 HPF コメント残存 / アーキテクチャ図 Tremolo 位置 / Match condition / vPosScale 領域記述 等を実装に整合
+- computePreampLUT_Ge: dead function 宣言、active chain は computePreampLUT_Si2N3392_2stage と明記
+
+### Verification
+- node --check PASS
+- D-12 baseline 再測定: 全 band で ±0.5 dB 以内の差 (random fluctuation 範囲) を確認、機能不変
+- うりなみさん耳判定 (2026-04-25): 7 つの音色項目について A/B 試験で「現状 OK」と確定 (escapement 破裂感無し / beam dB ちょうど良い / energy 均等 / whirl 自然 / coupled TB OK / release キャラ OK / sendSum UI 露出無し)
+
+### 派生 issue (別セッション)
+- release inharmonicity 増加 (理想方向、urinamiさん明言)
+- L1247-1264 computePowerampLUT_Ge は active な誤コメント (Peterson 80W = 2N0725 Si BJT、Ge ではない) — Phase 5 Ge→Si rename で対応予定
+
+### Related
+- audit ノート: `audits/d12-baseline-2026-04-25/comment_audit.md`
+- 書き直し統合: `audits/d12-baseline-2026-04-25/comment_rewrites.md`
+- baseline: `audits/d12-baseline-2026-04-25/baseline.md`
+- memory: `project_pad_sensei_modeling_rationale` (物理モデリングは目的ではなく手段)
+
+
 ## [2026-04-23] 9d7d857 — D-1: velScaled 線形化 (DR 3→18 dB 改善、物理に忠実化)
 
 ### Feature
