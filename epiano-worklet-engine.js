@@ -21,6 +21,7 @@ var EpwState = {
   pickupSymmetry: 0.3,
   pickupDistance: 0.5,
   gapVoicing: 'dyno', // 'factory' | 'dyno' (D-3 A/B 切替)
+  fNewEnabled: true,  // F-NEW 磁化体積項 (D-12 2026-04-25 A/B 切替)
   preampGain: 1.0,
   tonestackBass: 0.5,
   tonestackMid: 0.5,
@@ -144,6 +145,7 @@ function _epwSendParams() {
     pickupSymmetry: EpState.pickupSymmetry,
     pickupDistance: EpState.pickupDistance,
     gapVoicing: (typeof EpState.gapVoicing !== 'undefined') ? EpState.gapVoicing : 'dyno',
+    fNewEnabled: (typeof EpState.fNewEnabled !== 'undefined') ? EpState.fNewEnabled : true,
     preampGain: EpState.preampGain,
     tsBass: EpState.tonestackBass,
     tsMid: EpState.tonestackMid,

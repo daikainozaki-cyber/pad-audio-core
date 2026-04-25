@@ -41,6 +41,46 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 # 履歴
 
 
+## [2026-04-25] {pending-sha} — D-12 F-NEW: 磁化体積項 A_tine ∝ L で bass-only +4 dB
+
+### Feature
+- **`tineMagneticVolumeFactor(midi)`** 関数追加: EMF = B × A_tine × dΦ/dt の A_tine 項
+  - bass tine の物理磁化量 (L が長い → 磁化された steel volume 大) を EMF 経路に反映
+  - 物理根拠: 実機 Rhodes DI でも bass がそれなり大きいという耳判定事実の物理説明
+  - bass-only boost (`Math.max(L/L_ref, 1.0)`): bass +0〜+5 dB、mid 不変、treble 不変
+  - L_ref = tineLength(59) = B3 reference
+- **`this.vMagFactor[]` per-voice array** 追加 (Float32Array MAX_VOICES)
+  - noteOn で `tineMagneticVolumeFactor(midi)` を保存 (`fNewEnabled` toggle で 1.0 切替)
+- **process loop で puOut に乗算** (vertical + horizontal 2 箇所)
+  - `puOut = gPrime × tineVelocity × vVelScale × vTipFactor × vMagFactor × puEmfScale`
+- **`this.fNewEnabled`** msg toggle 追加 (default true)
+  - 旧モデル相当の音と A/B 比較可能 (UI 側 `f-new-enabled` select)
+
+### 測定 (Rhodes DI, velocity=1.0, Ableton 表記)
+| Band | F-NEW Off (旧) | F-NEW On (新) | Δ |
+|---|---|---|---|
+| bass E1-E2 | -25.86 dB | **-21.80 dB** | **+4.06 dB** ↑ |
+| low/trans C2-C3 | -24.49 | -22.42 | +2.07 |
+| mid C3-C4 | -21.66 | **-21.67** | ~0 (元のまま) |
+| treble C5+ | -37.21 | **-36.83** | ~0 (元のまま) |
+
+→ bass +4 dB の boost、treble の副作用ゼロ、mid 不変。実機 Rhodes 「DI でも bass がそれなり大きい」に近づいた。
+
+### 耳判定 (うりなみさん, 2026-04-25)
+- 「ベースは太くなっている」「これでいい」(F-NEW v2 floor 1.0 適用後)
+- bass 音量は **完成**判定
+- treble は別途 voicing 調整で対応 (実機 PU の per-pickup 微調整)
+- 歪み感は別途追加予定 (Step 2: vPosScale bass-drive)
+
+### Verification
+- node --check PASS
+- baseline 再測定で bass-only +4 dB / treble unchanged 確認
+
+### Related
+- 物理根拠: `notes/permanent/2026/DIでもPU非線形のg'(q)非対称クリップでbassのpassive saturationは生成される`
+- memory: `urinami_rhodes_real_instrument_experience` (整備済実機 + Vintage Vibe voicing reference)
+
+
 ## [2026-04-25] {pending-sha} — D-12: コメント整合性監査と書き直し (29 件、コード機能不変)
 
 ### Audit

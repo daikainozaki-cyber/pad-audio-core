@@ -652,6 +652,35 @@ function tipDisplacementFactor(midi) {
   return massScale * Math.pow(L, 1.5) * phi / TIP_REF;
 }
 
+// --- Tine magnetic volume factor (F-NEW, 2026-04-25) ---
+// EMF = B × A_tine × dΦ/dt (Faraday) where A_tine is the magnetized steel
+// volume passing through the PU's flux gradient. For Rhodes tines:
+//   A_tine = ρ_steel × cross_section × L
+// With cross-section uniform across all tines (Ø ~2mm steel rod), A_tine ∝ L.
+// → bass (long) tine has more magnetized steel → stronger flux change → louder PU.
+//
+// 物理根拠: EMF 段の flux 量（実機 DI でも bass がそれなり大きい事実の物理説明）。
+// 整備済 Rhodes / Vintage Vibe / Dyno-My-Piano voicing で bass-up が標準である現象を
+// 単純な per-key gain ではなく「物理項として」モデルに加える。
+//
+// Reference: B3 (MIDI 59) を 1.0 とする per-key normalize。
+// 適用: noteOn で vMagFactor[vi] にキャッシュ、process loop の puOut に乗算。
+//
+// 既存の tipDisplacementFactor は modal 振幅補正、当 factor は EMF 磁化体積補正で
+// 物理的に独立。両者を multiply して per-key per-voice 経路に乗せる。
+function tineMagneticVolumeFactor(midi) {
+  // bass-only boost (Step 1 fix, 2026-04-25 D-12 耳判定後):
+  //   bass (L > L_ref) は L/L_ref で magnetic volume boost (+0〜+5 dB)
+  //   treble (L < L_ref) は 1.0 floor で減衰させない
+  // 物理解釈: bass tine は磁化量大という物理は反映するが、
+  //   treble の副作用 (vMagFactor 0.4-0.6 で -5〜-8 dB の痩せ) は別の voicing layer
+  //   (実機 PU の per-pickup 微調整) で扱う。当 factor は bass-only voicing。
+  // Reference: B3 (MIDI 59)。bass の boost ratio は L 比そのまま (full physical)。
+  var L = tineLength(midi);
+  var L_ref = tineLength(59); // B3 reference
+  return Math.max(L / L_ref, 1.0);
+}
+
 // --- Per-key tine vibration amplitude (Euler-Bernoulli cantilever beam) ---
 // NOT a scale factor. Each key's amplitude is computed from its own physics:
 //   A_tip = v_hammer × √(m_hammer / k_eff) × mode_shape_at_striking_point
@@ -1438,6 +1467,11 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     // Per-voice tip displacement factor (register-dependent physical amplitude scaling).
     this.vTipFactor    = new Float32Array(MAX_VOICES);
 
+    // Per-voice tine magnetic volume factor (F-NEW, 2026-04-25):
+    // EMF magnetic-volume term, A_tine ∝ L. bass で大きく、treble で小さくなる方向。
+    // tipDisplacementFactor (modal 振幅補正) とは物理的に独立。詳細は関数定義参照。
+    this.vMagFactor    = new Float32Array(MAX_VOICES);
+
     // Per-voice velocity→physical scale: restores ω-dependent cross-keyboard balance.
     // With velocity-based amps, the old implicit ×ω is gone. This per-voice factor
     // = ω₀_fund / vA_fund converts energy-normalized velocity back to physical EMF scale.
@@ -1771,6 +1805,8 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.pickupSymmetry = 0.50; // urinami-san default: bell sweet spot
     this.pickupDistance  = 0.5;
     this.gapVoicing      = 'dyno'; // 'factory' | 'dyno' (D-3 A/B 切替)
+    this.fNewEnabled     = true;   // F-NEW 磁化体積項 A_tine ∝ L (2026-04-25 D-12)
+                                   // false にすると vMagFactor=1.0 (旧モデル相当)
     // --- Dead controls (msg accessor あり、process loop 参照なし) ---
     // preampGain / use2ndPreamp / useTonestack は msg handler で値を受け取るのみ
     // で、process loop からは一切読まれない。Voicing Lab UI / consumer 互換のため
@@ -2260,6 +2296,7 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     if (msg.pickupSymmetry !== undefined) this.pickupSymmetry = msg.pickupSymmetry;
     if (msg.pickupDistance !== undefined) this.pickupDistance = msg.pickupDistance;
     if (msg.gapVoicing !== undefined) this.gapVoicing = msg.gapVoicing;
+    if (msg.fNewEnabled !== undefined) this.fNewEnabled = !!msg.fNewEnabled;
     if (msg.preampGain !== undefined) this.preampGain = msg.preampGain;
     // msg.powerampDrive removed 2026-04-13 — Twin-only param.
     if (msg.volumePot !== undefined) this.volumePot = msg.volumePot;
@@ -2678,6 +2715,11 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     // Per-voice physical parameters
     var tipFactor = tipDisplacementFactor(midi);
     this.vTipFactor[vi] = tipFactor;
+
+    // F-NEW (2026-04-25): tine magnetic volume A_tine ∝ L
+    // Per-voice cache for EMF flux-volume term in process loop.
+    // fNewEnabled が false なら 1.0（旧モデル相当）。msg toggle で A/B 比較可能。
+    this.vMagFactor[vi] = this.fNewEnabled ? tineMagneticVolumeFactor(midi) : 1.0;
 
     // Velocity→physical scale: energy-normalized velocity を old displacement-based EMF
     // scale に戻す変換係数。
@@ -3381,11 +3423,12 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
             this.vDbgTineVelSqSum[v] += tineVelocity * tineVelocity;
           }
           var gPrimeV = lutLookup(this.vPuLUT[v], puPos);
-          puOut = gPrimeV * tineVelocity * this.vVelScale[v] * this.vTipFactor[v] * this.puEmfScale;
+          // F-NEW: vMagFactor (磁化体積項 A_tine ∝ L) を追加。bass で +、treble で -。
+          puOut = gPrimeV * tineVelocity * this.vVelScale[v] * this.vTipFactor[v] * this.vMagFactor[v] * this.puEmfScale;
           // Horizontal contribution (2D whirling)
           if (this.vPuLUT_h[v] && tineHVelocity !== 0) {
             var gPrimeH = lutLookup(this.vPuLUT_h[v], puPos);
-            puOut += gPrimeH * tineHVelocity * this.vVelScale[v] * this.vTipFactor[v] * this.puEmfScale;
+            puOut += gPrimeH * tineHVelocity * this.vVelScale[v] * this.vTipFactor[v] * this.vMagFactor[v] * this.puEmfScale;
           }
           if (this.debugPuStatsEnabled) {
             var poAbs = Math.abs(puOut);
