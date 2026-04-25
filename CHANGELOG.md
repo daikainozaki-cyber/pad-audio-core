@@ -41,6 +41,52 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 # 履歴
 
 
+## [2026-04-25] {pending-sha} — D-12 Step 2: PU 非線形ゾーン到達深さ調整 (bass 歪み生成)
+
+### Feature
+- **`tinePuPosBassDriveFactor(midi)`** 関数追加: bass の puPos peak を LUT 端寄りに押し込む per-key factor
+  - midi <= 50 で 1.3x、midi 50-60 で taper to 1.0x、midi >= 60 で 1.0
+  - 物理対応: 実機 Rhodes の per-pickup voicing (pole 形状 / 磁化分布 / 個別 gap voicing) と等価
+- **`this.vPosScale[vi]` 計算式に乗算**: `vPosScale = (omega0/vA_fund) × tinePuPosBassDriveFactor(midi)`
+  - puPos peak が bass で +30%、LUT 端 (qRange 0.45) 寄りへ
+  - g'(q) の非線形飽和ゾーンに深く到達 → bass の歪み生成
+  - LUT 端で saturate → 線形 gain は飽和で頭打ち、**「歪みだけ」増えて音量はほぼ不変**
+- **`this.puPosBassDriveEnabled`** msg toggle 追加 (default true)
+  - F-NEW と独立に on/off 可能、UI 側 `pupos-bass-drive-enabled` select で A/B 比較
+
+### 設計判断
+- vTineAmp の bass boost (modal 振幅段) は音量も増やすため **却下**
+- vPosScale boost (LUT 入力段) なら **歪みのみ** 増えて音量保持 → 採用
+- 物理対応: 実機 PU の voicing と直接対応、tine 自体の物理は不変
+- bass-only 1.3x の理由: 1.4x で puPeak 0.4668 が qRange 0.45 を超え Drive/Vintage preset で過剰、1.3x で puPeak 0.4351 = 安全圏
+
+### 測定 (Rhodes DI, velocity=1.0, F-NEW + Bass Drive 1.3x)
+| Band | F-NEW のみ | + Bass Drive 1.3 | Δ THD |
+|---|---|---|---|
+| bass E1-E2 | THD -7.85 / puPeak 0.34 | **THD -6.35 / puPeak 0.4351** | **+1.50 dB の歪み増** |
+| low/trans | THD -8.46 / puPeak 0.32 | THD -7.64 / puPeak 0.38 | +0.82 |
+| mid C3-C4 | -9.50 / 0.30 | -9.50 / 0.30 | 不変 |
+| treble C5+ | -22.73 / 0.10 | -23.66 / 0.10 | 不変 |
+
+### 耳判定 (うりなみさん, 2026-04-25)
+- 1.4x: 「Drive や Vintage だと歪む」(過剰)
+- **1.3x: 「感じは出ている」 → 確定**
+- mid の歪み残: voicing layer (Tone Balance / Suitcase Baxandall EQ) で別途カット予定
+
+### D-12 物理レベル完成
+- F-NEW (bass +4 dB の音量増、磁化体積 A_tine ∝ L) + Bass Drive (bass 歪み生成、PU 非線形飽和) で D-12 完成
+- 残課題: voicing layer の整理 (mid cut、preset 横断 Bass/Treble UI、treble 別 voicing)
+
+### 派生原則
+- 物理層 (F-NEW + Bass Drive) と voicing 層 (EQ / Tone Balance) を構造で分離
+- UI は「実機 rigid な再現」より「使いやすさ」を優先 (preset 横断の共通コントロール)
+- 詳細: memory `project_pad_sensei_modeling_rationale` の三層 ground truth (音色 / 配布 / 使いやすさ)
+
+### Verification
+- node --check PASS
+- baseline 再測定で bass 歪み生成・音量ほぼ不変・mid/treble 不変を確認
+
+
 ## [2026-04-25] {pending-sha} — D-12 F-NEW: 磁化体積項 A_tine ∝ L で bass-only +4 dB
 
 ### Feature

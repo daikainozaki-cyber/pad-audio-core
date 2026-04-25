@@ -681,6 +681,26 @@ function tineMagneticVolumeFactor(midi) {
   return Math.max(L / L_ref, 1.0);
 }
 
+// --- PU position bass-drive factor (Step 2, 2026-04-25 D-12) ---
+// vPosScale に乗じて bass の puPos peak を LUT 端 (qRange 0.45) 寄りに押し込む。
+// 効果:
+//   - puPos が LUT 端寄り → g'(q) の非線形飽和ゾーンに深く到達 → 歪み生成
+//   - LUT 端で g'(q) が saturate (頭打ち) → 線形 gain は ほぼ不変
+//   - 結果: 「歪みだけ」増えて、音量増加は微小
+//
+// 物理対応: 実機 Rhodes の per-pickup voicing と等価。
+//   pole 形状 / 磁化分布 / per-pickup gap の voicing で「bass の非線形ゾーン到達」を強化。
+//   tine 自体の物理は変えない (modal synthesis は正しいまま) ので副作用が小さい。
+//
+// bass-only: midi <= 50 (E2 = MIDI 52 の少し下) で 1.2x、midi 50-60 で 1.0 へ taper。
+// midi >= 60 (mid 以上) は不変。
+function tinePuPosBassDriveFactor(midi) {
+  if (midi <= 50) return 1.3;
+  if (midi >= 60) return 1.0;
+  var t = (midi - 50) / 10;
+  return 1.3 * (1 - t) + 1.0 * t;
+}
+
 // --- Per-key tine vibration amplitude (Euler-Bernoulli cantilever beam) ---
 // NOT a scale factor. Each key's amplitude is computed from its own physics:
 //   A_tip = v_hammer × √(m_hammer / k_eff) × mode_shape_at_striking_point
@@ -1807,6 +1827,8 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     this.gapVoicing      = 'dyno'; // 'factory' | 'dyno' (D-3 A/B 切替)
     this.fNewEnabled     = true;   // F-NEW 磁化体積項 A_tine ∝ L (2026-04-25 D-12)
                                    // false にすると vMagFactor=1.0 (旧モデル相当)
+    this.puPosBassDriveEnabled = true;  // Step 2: PU 非線形ゾーン到達深さ調整 (2026-04-25 D-12)
+                                        // false にすると vPosScale bass boost なし (旧モデル相当)
     // --- Dead controls (msg accessor あり、process loop 参照なし) ---
     // preampGain / use2ndPreamp / useTonestack は msg handler で値を受け取るのみ
     // で、process loop からは一切読まれない。Voicing Lab UI / consumer 互換のため
@@ -2297,6 +2319,7 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     if (msg.pickupDistance !== undefined) this.pickupDistance = msg.pickupDistance;
     if (msg.gapVoicing !== undefined) this.gapVoicing = msg.gapVoicing;
     if (msg.fNewEnabled !== undefined) this.fNewEnabled = !!msg.fNewEnabled;
+    if (msg.puPosBassDriveEnabled !== undefined) this.puPosBassDriveEnabled = !!msg.puPosBassDriveEnabled;
     if (msg.preampGain !== undefined) this.preampGain = msg.preampGain;
     // msg.powerampDrive removed 2026-04-13 — Twin-only param.
     if (msg.volumePot !== undefined) this.volumePot = msg.volumePot;
@@ -2812,7 +2835,10 @@ class EpianoWorkletProcessor extends AudioWorkletProcessor {
     // うりなみさん耳判定 (2026-04-25 確認済): qRange = 0.45 と組み合わせて bass の
     // passive saturation が出る適正レンジに着地。
     this.vQRange[vi] = qRange;
-    this.vPosScale[vi] = omega0 / Math.max(vA_fund, 0.01);
+    // Step 2 (2026-04-25 D-12): bass で puPos peak を LUT 端寄りに押し込み、
+    // PU 非線形飽和を深く起こす (歪み生成)。puPosBassDriveEnabled=false で旧モデル相当。
+    var puPosDrive = this.puPosBassDriveEnabled ? tinePuPosBassDriveFactor(midi) : 1.0;
+    this.vPosScale[vi] = (omega0 / Math.max(vA_fund, 0.01)) * puPosDrive;
     var lverOff = (midi >= 0 && midi < 128) ? KEY_VARIATION[midi * 3] : 0;
     var lhorOff = (midi >= 0 && midi < 128) ? KEY_VARIATION[midi * 3 + 1] : 0;
     if (this.pickupType === 'wurlitzer') {
