@@ -41,6 +41,25 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 # 履歴
 
 
+## [2026-04-27] {pending-sha} — rebuildFilterChain に MasterTail hook (host-side master tail 共通経路)
+
+### Feature
+- **`rebuildFilterChain` の chain 終端**を `window.MasterTail.input` 優先に変更
+  - host が `window.MasterTail` を提供すれば chain 終端は `MasterTail.input` (例: bassFilter) に向き、tail (bass/treble + masterTrim 等) を経由して destination に到達
+  - host が未提供なら従来通り `audioCtx.destination` 直結 = 後方互換 (smoke test / legacy consumer 不変)
+- **`window.rebuildFilterChain` を expose**: host が MasterTail 後付け init した時、再構築の trigger として呼べる
+
+### Why
+- pad-sensei-keys 側で host-side master tail (Bass/Treble 全 preset 共通 + 固定 +3dB) を実装済 (commit 118a570)
+- これを 64Pad Explorer に移植する際、64PE は loCut/hiCut UI が現役で `rebuildFilterChain` 呼出経路がある → host 側で `masterBus.disconnect(destination)` で挿入する keys 方式が競合
+- 解決: audio-core 側 chain 構築の終端を host MasterTail に渡せる hook 構造に変更、両 consumer 共通経路化
+
+### Consumer side
+- **BREAKING なし**: MasterTail 未提供なら従来 destination 直結
+- keys は次回 bump 時に `master-tail.js` を rebuildFilterChain 経由型に改修推奨 (現状の `masterBus.disconnect(destination)` 方式から `MasterTail.input` を expose する方式へ。ただし現状 keys では rebuildFilterChain 未呼出なので動作影響なし)
+- 64PE は host-tail 設置 + `MasterTail.init()` 後に `window.rebuildFilterChain()` を呼ぶ
+
+
 ## [2026-04-25] {pending-sha} — D-12 Step 2: PU 非線形ゾーン到達深さ調整 (bass 歪み生成)
 
 ### Feature

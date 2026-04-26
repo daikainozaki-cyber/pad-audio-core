@@ -123,9 +123,16 @@ let hiCutEnabled = false;
 // Lo-Cut / Hi-Cut sit AFTER the master bus so every path
 // (DI chain, Suitcase amp out, Plate reverb return) passes through them,
 // matching how a real console's final EQ is placed before the output.
-// Chain: masterBus → (loCut) → (hiCut) → destination
+// Chain: masterBus → (loCut) → (hiCut) → (MasterTail | destination)
 // When both filters are disabled the default masterBus→destination
 // connection from audio-master.js is used as-is.
+//
+// 2026-04-27: host が window.MasterTail を提供すれば、chain 終端を
+// MasterTail.input (例: bassFilter) に向ける。MasterTail は内部で
+// bass → treble → masterTrim(+3dB) → destination を組み立てる責務を持つ。
+// MasterTail 未提供の consumer (legacy / smoke test) では destination 直結で
+// 後方互換。MasterTail を後付けで attach した場合は host から
+// rebuildFilterChain() を 1 回呼べば chain 終端が tail に切り替わる。
 function rebuildFilterChain() {
   masterBus.disconnect();
   loCutFilter.disconnect();
@@ -143,7 +150,18 @@ function rebuildFilterChain() {
     chain = hiCutFilter;
   }
 
-  chain.connect(audioCtx.destination);
+  let tail = null;
+  if (typeof window !== 'undefined' && window.MasterTail
+      && window.MasterTail.input) {
+    tail = window.MasterTail.input;
+  }
+  chain.connect(tail || audioCtx.destination);
+}
+
+// host が MasterTail を後から init した時に、chain を再構築するための
+// 呼出口を expose。host は MasterTail.init 完了直後にこれを 1 回呼ぶ。
+if (typeof window !== 'undefined') {
+  window.rebuildFilterChain = rebuildFilterChain;
 }
 
 // DI chain terminates at _epOutputCompensate (preset 間音量揃え、
