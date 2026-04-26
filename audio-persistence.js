@@ -25,6 +25,12 @@ function _saveEpMixer() {
     springFeedbackScale: EpState.springFeedbackScale,
     springStereoEnabled: EpState.springStereoEnabled,
     attackNoise: EpState.attackNoise,
+    // 2026-04-27 urinami: Reverb TYPE / Bass / Treble 永続化欠落 fix。
+    // urinami が UI で変えても次回起動時に preset default に戻る既知 bug への
+    // 対応。consumer (keys / 64PE) どちらでも同じ key 保存される。
+    reverbType: EpState.reverbType,
+    tonestackBass: EpState.tonestackBass,
+    tonestackTreble: EpState.tonestackTreble
   });
 }
 
@@ -41,7 +47,9 @@ function _loadEpMixer() {
     if (!s) return;
     // pickupSymmetry: always use HTML default (physics-calibrated).
     // Old localStorage may have stale values from before PU model changes.
-    ['springReverbMix','springDwell','springFeedbackScale','springStereoEnabled','attackNoise'].forEach(function(key) {
+    ['springReverbMix','springDwell','springFeedbackScale','springStereoEnabled','attackNoise',
+     // 2026-04-27 urinami: Reverb TYPE / Bass / Treble 永続化欠落 fix
+     'reverbType','tonestackBass','tonestackTreble'].forEach(function(key) {
       if (s[key] !== undefined) EpState[key] = s[key];
     });
     // MECHANICAL knob controls all 3 noise params equally
@@ -90,8 +98,29 @@ function _loadEpMixer() {
         values['ep-mechanical'] = EpState.attackNoise;
         labels['ep-mechanical-val'] = EpState.attackNoise.toFixed(2);
       }
+      // 2026-04-27 urinami: Bass / Treble 永続化欠落 fix。slider 0-1 範囲、
+      // value labels は (v * 10).toFixed(1) (audio-ui-binding _eqSlider と一致)。
+      if (EpState.tonestackBass !== undefined) {
+        values['ep-eq-bass'] = EpState.tonestackBass;
+        labels['ep-eq-bass-val'] = (EpState.tonestackBass * 10).toFixed(1);
+      }
+      if (EpState.tonestackTreble !== undefined) {
+        values['ep-eq-treble'] = EpState.tonestackTreble;
+        labels['ep-eq-treble-val'] = (EpState.tonestackTreble * 10).toFixed(1);
+      }
       if (b.syncSliders) b.syncSliders(values);
       if (b.syncValueLabels) b.syncValueLabels(labels);
+    }
+    // 2026-04-27 urinami: Reverb TYPE 永続化欠落 fix。ep-reverb-type DOM
+    // dropdown に値反映 + change event dispatch で worklet routing 切替を
+    // 確実発火 (epianoWorkletUpdateParams({useSpringReverb}) は ignore される
+    // 経路あり、change handler で _updatePlateRouting 呼出が必要)。
+    if (EpState.reverbType !== undefined) {
+      var revSel = document.getElementById('ep-reverb-type');
+      if (revSel && revSel.value !== EpState.reverbType) {
+        revSel.value = EpState.reverbType;
+        revSel.dispatchEvent(new Event('change'));
+      }
     }
   } catch(_) {}
 }

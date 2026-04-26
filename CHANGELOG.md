@@ -41,6 +41,29 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 # 履歴
 
 
+## [2026-04-27] {pending-sha} — _saveEpMixer / _loadEpMixer に Reverb TYPE / Bass / Treble 永続化追加
+
+### Fix
+- **`_saveEpMixer` の payload に `reverbType` / `tonestackBass` / `tonestackTreble` 追加**
+  - urinami 報告: UI で Plate に切替えても次回起動時に preset default (= spring) に戻る既知 bug。Bass / Treble も同様に未保存
+  - 修正: 3 フィールドを localStorage `*-ep-mixer` (consumer 側 key prefix) に永続化
+- **`_loadEpMixer` の restore に上記 3 フィールド追加**
+  - EpState への書き戻し
+  - bridge mixer.syncSliders / syncValueLabels で ep-eq-bass / ep-eq-treble の DOM 値・label を同期 (slider 0-1 → label v*10)
+  - ep-reverb-type は DOM dropdown 値を直接反映 + change event dispatch (worklet routing 切替を確実発火、epianoWorkletUpdateParams `useSpringReverb` ignore 経路への対応)
+
+### Why
+- pad-sensei-keys / 64-pad-visualizer 両 consumer で urinami が「Plate 選んでも保存されない」「Bass/Treble も次回起動で戻る」と観測
+- audio-core 側で永続化 schema を統一する方が host adapter 個別実装より clean
+
+### BREAKING なし
+- localStorage に新 field 追加するだけ (旧 key 互換維持)
+- consumer side の adapter 変更不要 (saveEpMixer / loadEpMixer bridge の payload に新 field が増えるが key access のみ)
+
+### 関連
+- 同 commit に 2026-04-27 rebuildFilterChain MasterTail hook も含む (separate entry below)
+
+
 ## [2026-04-27] {pending-sha} — rebuildFilterChain に MasterTail hook (host-side master tail 共通経路)
 
 ### Feature
