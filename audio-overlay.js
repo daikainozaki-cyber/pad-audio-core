@@ -43,6 +43,20 @@ function dismissAudioOverlay() {
   if (_useEpianoWorklet && typeof epianoWorkletInit === 'function') {
     var epDest = epianoDirectOut || masterBus;
     epianoWorkletInit(audioCtx, epDest);
+    // 2026-04-27 urinami: 永続化された reverbType / tonestackBass / tonestackTreble
+    // を worklet init 直後に再送 (Codex 監査 P2 fix: _loadEpMixer は worklet
+    // init 前に走るため、その時点の epianoWorkletUpdateParams は no-op)。
+    if (typeof EpState !== 'undefined' && typeof epianoWorkletUpdateParams === 'function') {
+      var msg = {};
+      if (EpState.reverbType !== undefined) {
+        msg.useSpringReverb = (EpState.reverbType === 'spring');
+      }
+      if (EpState.tonestackBass !== undefined)   msg.tonestackBass = EpState.tonestackBass;
+      if (EpState.tonestackTreble !== undefined) msg.tonestackTreble = EpState.tonestackTreble;
+      if (Object.keys(msg).length > 0) {
+        epianoWorkletUpdateParams(msg);
+      }
+    }
   }
   // Auto-select engine if muted (legacy path)
   if (_soundMuted) {

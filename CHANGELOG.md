@@ -41,6 +41,24 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 # 履歴
 
 
+## [2026-04-27] {pending-sha} — Reverb TYPE / Bass / Treble 永続化 P2 fix (Codex 監査)
+
+### Fix
+- **`_loadEpMixer` reverbType 復元の change dispatch を撤去** (P2-1)
+  - change handler が `_saveEpMixer` を呼ぶと、Keys fallback (mixer-ui.js) が host-only fields (rhodesLevel / tremolo) を default 値で serialize し、後続の `_loadKeysEpMixerExtras` が restore する値を破壊する bug を回避
+  - 代わりに DOM 値直接 set + `_updatePlateRouting()` 直接呼出 + `epianoWorkletUpdateParams({useSpringReverb})` 直接送信
+- **`audio-overlay.js dismissAudioOverlay` に worklet init 後 reverbType 再送 hook 追加** (P2-2)
+  - `_loadEpMixer` が走るのは worklet init 前なので、その時点の `epianoWorkletUpdateParams` は no-op
+  - worklet init 直後に EpState.reverbType / tonestackBass / tonestackTreble を worklet に再送
+
+### Why
+- Codex 監査 P2 指摘 (前回 commit 8df8779 へのレビュー)
+- 復元シーケンスで他 host-only fields が破壊される可能性 (P2-1) と、worklet 反映が起動時に効かない問題 (P2-2)
+
+### BREAKING なし
+- 既存 schema 不変、consumer 側 adapter 変更不要
+
+
 ## [2026-04-27] {pending-sha} — _saveEpMixer / _loadEpMixer に Reverb TYPE / Bass / Treble 永続化追加
 
 ### Fix

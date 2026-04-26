@@ -111,15 +111,21 @@ function _loadEpMixer() {
       if (b.syncSliders) b.syncSliders(values);
       if (b.syncValueLabels) b.syncValueLabels(labels);
     }
-    // 2026-04-27 urinami: Reverb TYPE 永続化欠落 fix。ep-reverb-type DOM
-    // dropdown に値反映 + change event dispatch で worklet routing 切替を
-    // 確実発火 (epianoWorkletUpdateParams({useSpringReverb}) は ignore される
-    // 経路あり、change handler で _updatePlateRouting 呼出が必要)。
+    // 2026-04-27 urinami: Reverb TYPE 永続化欠落 fix。
+    // change event dispatch は使わない (Codex 監査 P2 fix: change handler が
+    // _saveEpMixer を呼ぶと、Keys fallback が host-only fields (rhodesLevel /
+    // tremolo) を default で serialize し、後続の _loadKeysEpMixerExtras が
+    // restore する値を破壊する)。代わりに DOM 値を直接 set + _updatePlateRouting
+    // で routing 反映 + worklet にも直接送信 (worklet init 前は no-op、init
+    // 完了後は audio-overlay.js dismissAudioOverlay の post-init hook で再送)。
     if (EpState.reverbType !== undefined) {
       var revSel = document.getElementById('ep-reverb-type');
       if (revSel && revSel.value !== EpState.reverbType) {
         revSel.value = EpState.reverbType;
-        revSel.dispatchEvent(new Event('change'));
+      }
+      if (typeof _updatePlateRouting === 'function') _updatePlateRouting();
+      if (_useEpianoWorklet && typeof epianoWorkletUpdateParams === 'function') {
+        epianoWorkletUpdateParams({ useSpringReverb: EpState.reverbType === 'spring' });
       }
     }
   } catch(_) {}
