@@ -41,6 +41,18 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 # 履歴
 
 
+## [2026-04-27] {pending-sha} — 'Rhodes Suitcase Vintage Wah' → 'Vintage Envelope Filter' rename
+
+### Fix
+- preset key / label を `'Rhodes Suitcase Vintage Wah'` → `'Rhodes Suitcase Vintage Envelope Filter'` に rename
+  - urinami 観察: Wah ではなく Envelope Filter (auto-filter envelope follower) が正確 (画像 #17)
+- `audio-persistence.js loadSoundSettings` に migration: 旧 'Wah' キーは新 'Envelope Filter' に置換 (旧 localStorage 値の救済)
+
+### BREAKING なし
+- 直前 commit 6d6921c で追加された preset の rename、外部公開前の修正
+- consumer 側 displayRename map も同 rename
+
+
 ## [2026-04-27] {pending-sha} — AMP Vintage Wah preset 追加 (urinami 指示、HPS gate)
 
 ### Feature

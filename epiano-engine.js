@@ -119,9 +119,10 @@ var EP_AMP_PRESETS = {
     // Vintage: 経年 germanium、J-A saturation 強め、warm/mid 押し出し。
     voicingLabDefaults: { gePreampDrive: 3.0, gePreampGain: 1.2, suitcasePreFxTrim: 0.35, jaWetMix: 0.5 },
   }),
-  'Rhodes Suitcase Vintage Wah': Object.assign({}, _SUITCASE_COMMON, {
-    // 2026-04-27 urinami 追加: AMP Vintage に Wah variant。voicing は Vintage
-    // 流用、Wah 効果は host 側 (64PE autoFilter BP) で実装。urinami 後で
+  'Rhodes Suitcase Vintage Envelope Filter': Object.assign({}, _SUITCASE_COMMON, {
+    // 2026-04-27 urinami: AMP Vintage に Envelope Filter variant (Wah ではなく
+    // Envelope Filter が正確、画像 #17 で確認)。voicing は Vintage 流用、
+    // Envelope Filter 効果は host 側 (64PE autoFilter BP) で実装。urinami 後で
     // 実機 voicing 確定 → 値固め直し予定。useCabinet (HPS gate) は
     // _SUITCASE_COMMON 由来。
     voicingLabDefaults: { gePreampDrive: 3.0, gePreampGain: 1.2, suitcasePreFxTrim: 0.35, jaWetMix: 0.5 },

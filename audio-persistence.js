@@ -168,6 +168,9 @@ function loadSoundSettings() {
     // D-8 (2026-04-25): 'Rhodes Suitcase' は 3 variant (Clean/Drive/Vintage) に
     // 分割された。旧 'Rhodes Suitcase' は Drive に相当するので migrate.
     if (s.preset === 'Rhodes Suitcase') s.preset = 'Rhodes Suitcase Drive';
+    // 2026-04-27 urinami: Wah → Envelope Filter rename (Wah が正確な呼称じゃ
+    // ないため変更)。localStorage に旧 'Wah' が残っていれば置換。
+    if (s.preset === 'Rhodes Suitcase Vintage Wah') s.preset = 'Rhodes Suitcase Vintage Envelope Filter';
     if (s.engine && ENGINES[s.engine]) {
       var wasMuted = _soundMuted;
       setEngine(s.engine);
