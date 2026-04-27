@@ -41,6 +41,23 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 # 履歴
 
 
+## [2026-04-27] {pending-sha} — autoFilterLevel 追加 (Envelope Filter 強度コントロール)
+
+### Feature
+- **`autoFilterLevel` (0-1, default 1.0) 追加** in `audio-effects.js`:
+  - `triggerAutoFilter()` 内で `effectiveDepth = autoFilterDepth * autoFilterLevel`
+  - LEVEL=0 で sweep なし (常時 hiFreq) = effect 完全切り、LEVEL=1 で従来通り depth 通り
+  - urinami「Envelope Filter かかりすぎる」への対応 (画像 #17)
+- **`saveSoundSettings` / `loadSoundSettings` の slider id 配列に `'snd-af-level'` 追加** (永続化対応)
+
+### Why
+- urinami 観察: AMP Vintage Envelope Filter の AUTO FILTER ON 時に effect 強度が強すぎる
+- DEPTH を下げる代替もあるが、DEPTH は filter sweep 範囲 (色味)、LEVEL は全体強度 (wet/dry mix 相当) で意味が違う
+
+### BREAKING なし
+- consumer 側 (keys / 64PE) で `snd-af-level` slider を index.html に新規追加すれば反映、未追加でも default 1.0 で従来動作
+
+
 ## [2026-04-27] {pending-sha} — 'Rhodes Suitcase Vintage Wah' → 'Vintage Envelope Filter' rename
 
 ### Fix

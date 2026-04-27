@@ -25,6 +25,11 @@ let autoFilterSpeed = 0.15; // decay time in seconds
 let autoFilterType = 'lowpass';  // 'lowpass' or 'bandpass'
 let autoFilterPoles = 2;         // 2 or 4
 let autoFilterQ = 2;             // resonance: 1=fat, 10=narrow/vocal
+// 2026-04-27 urinami: 全体 effect 強度 (0=完全 bypass、1=depth 通り)。
+// triggerAutoFilter 内で effectiveDepth = autoFilterDepth * autoFilterLevel
+// として cutoff sweep 振り幅を縮小、LEVEL=0 で sweep なし (常時 hiFreq) =
+// effect 完全切り。urinami「Envelope Filter かかりすぎる」への対応。
+let autoFilterLevel = 1.0;
 
 function triggerAutoFilter() {
   if (!autoFilterEnabled) return;
@@ -33,15 +38,17 @@ function triggerAutoFilter() {
   // LP: Mu-Tron LP style — sweep 800-8kHz, Q=4 (resonant peak)
   // BP: Cry Baby / Mu-Tron BP — sweep 450-2500Hz, Q=5 (focused wah)
   //     Depth slider = center freq bias (low=bassy, high=bright)
+  // 2026-04-27 urinami: LEVEL slider で全体 effect 強度 scale。
+  var effectiveDepth = autoFilterDepth * autoFilterLevel;
   var hiFreq, loFreq;
   if (isBP) {
     // Cry Baby / Mu-Tron BP: 800-3500Hz sweep
-    hiFreq = 800 + autoFilterDepth * 2700;
-    loFreq = 350 + autoFilterDepth * 250;
+    hiFreq = 800 + effectiveDepth * 2700;
+    loFreq = 350 + effectiveDepth * 250;
   } else {
     // Mu-Tron LP: 800-8000Hz sweep
-    hiFreq = 800 + autoFilterDepth * 7200;
-    loFreq = 200 + (1 - autoFilterDepth) * 600;
+    hiFreq = 800 + effectiveDepth * 7200;
+    loFreq = 200 + (1 - effectiveDepth) * 600;
   }
   autoFilter.Q.setValueAtTime(autoFilterQ, now);
   autoFilter2.Q.setValueAtTime(autoFilterQ, now);
