@@ -5,7 +5,7 @@
 // Flanger / Lo-Cut / Hi-Cut live here and form the signal chain:
 //   masterGain → tremoloNode → autoFilter → autoFilter2 → autoFilterWetGain ─┐
 //                            → autoFilterDryGain ─────────────────────────────┴→ autoFilterMix
-//              → phaserFilters[0..3] → phaserWet → phaserMix
+//              → autoFilterVolGain → phaserFilters[0..3] → phaserWet → phaserMix
 //              → flangerDelay → flangerWet → flangerMix
 //              → (optional loCut) → (optional hiCut) → masterBus
 // Depends on audio-master.js (audioCtx / masterGain / tremoloNode / masterBus).
@@ -44,6 +44,19 @@ function setAutoFilterWet(v) {
   const now = audioCtx.currentTime;
   autoFilterWetGain.gain.setValueAtTime(autoFilterWet, now);
   autoFilterDryGain.gain.setValueAtTime(1 - autoFilterWet, now);
+}
+
+// 2026-04-27 urinami: AUTO FILTER VOL (output trim)。autoFilterMix 後ろの
+// 全体音量制御。アンプ前段に入る (Suitcase preamp / power amp) ので WET 上げ
+// + Q resonance peak で過大入力 → アンプ歪み暴走。VOL で attenuate して回避。
+// VOL=1.0 (default) で従来通り、0.0 で完全 mute、>1.0 で boost。
+let autoFilterVol = 1.0;
+const autoFilterVolGain = audioCtx.createGain();
+autoFilterVolGain.gain.setValueAtTime(1.0, 0);
+
+function setAutoFilterVol(v) {
+  autoFilterVol = Math.max(0, Math.min(2, v));
+  autoFilterVolGain.gain.setValueAtTime(autoFilterVol, audioCtx.currentTime);
 }
 
 function triggerAutoFilter() {
@@ -103,10 +116,11 @@ autoFilter2.connect(autoFilterWetGain);
 autoFilterWetGain.connect(autoFilterMix);
 tremoloNode.connect(autoFilterDryGain);
 autoFilterDryGain.connect(autoFilterMix);
-autoFilterMix.connect(phaserFilters[0]);
+autoFilterMix.connect(autoFilterVolGain);
+autoFilterVolGain.connect(phaserFilters[0]);
 phaserFilters[3].connect(phaserWet);
 phaserWet.connect(phaserMix);
-autoFilterMix.connect(phaserMix);
+autoFilterVolGain.connect(phaserMix);
 
 // --- Flanger: modulated short delay ---
 const flangerDelay = audioCtx.createDelay(0.02);

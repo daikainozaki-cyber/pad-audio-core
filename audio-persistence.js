@@ -136,7 +136,7 @@ function saveSoundSettings() {
     const s = {};
     s.engine = AudioState.engineKey;
     s.preset = AudioState.presetKey;
-    ['snd-volume','snd-tremolo','snd-tremolo-spd','snd-phaser','snd-flanger','snd-locut','snd-hicut','snd-af-depth','snd-af-speed','snd-af-q','snd-af-wet','snd-drive'].forEach(id => {
+    ['snd-volume','snd-tremolo','snd-tremolo-spd','snd-phaser','snd-flanger','snd-locut','snd-hicut','snd-af-depth','snd-af-speed','snd-af-q','snd-af-wet','snd-af-vol','snd-drive'].forEach(id => {
       const el = document.getElementById(id);
       if (el) s[id] = el.value;
     });
@@ -187,7 +187,7 @@ function loadSoundSettings() {
       _soundMuted = s.soundMuted !== undefined ? s.soundMuted : false;
       _updateMuteBtn();
     }
-    ['snd-volume','snd-tremolo','snd-tremolo-spd','snd-phaser','snd-flanger','snd-locut','snd-hicut','snd-af-depth','snd-af-speed','snd-af-q','snd-af-wet','snd-drive'].forEach(id => {
+    ['snd-volume','snd-tremolo','snd-tremolo-spd','snd-phaser','snd-flanger','snd-locut','snd-hicut','snd-af-depth','snd-af-speed','snd-af-q','snd-af-wet','snd-af-vol','snd-drive'].forEach(id => {
       if (s[id] === undefined) return;
       const el = document.getElementById(id);
       if (!el) return;

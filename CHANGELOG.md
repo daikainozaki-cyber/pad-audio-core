@@ -41,6 +41,24 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 # 履歴
 
 
+## [2026-04-27] {pending-sha} — autoFilterVol 追加 (output trim, アンプ前段過大入力回避)
+
+### Feature
+- **`autoFilterVol` (0-2, default 1.0) 追加** in `audio-effects.js`:
+  - chain: `autoFilterMix → autoFilterVolGain → phaserFilters[0] / phaserMix`
+  - VOL=1.0 で従来通り、0.0 で完全 mute、>1.0 で boost
+  - WET 上げ + Q resonance peak でアンプ前段に過大入力 → アンプ歪み暴走を回避するため
+- **`setAutoFilterVol(v)`** function 追加
+- **`saveSoundSettings` / `loadSoundSettings` の slider id 配列に `'snd-af-vol'` 追加**
+
+### Why
+- urinami「これパラレルやってるので wet としておいて。Vol もつけよう。アンプの前に入るんだから滅茶苦茶歪んでしまう」(2026-04-27)
+- WET は wet/dry mix (effect の濃さ)、VOL は post-mix の総量 trim (アンプへの入力レベル) で意味が違う
+
+### BREAKING なし
+- consumer 側で `snd-af-vol` slider 未追加でも default 1.0 で従来動作
+
+
 ## [2026-04-27] {pending-sha} — autoFilterWet 追加 (Envelope Filter wet/dry mix)
 
 ### Feature
