@@ -49,13 +49,13 @@ function setAutoFilterWet(v) {
 // 2026-04-27 urinami: AUTO FILTER VOL (output trim)。autoFilterMix 後ろの
 // 全体音量制御。アンプ前段に入る (Suitcase preamp / power amp) ので WET 上げ
 // + Q resonance peak で過大入力 → アンプ歪み暴走。VOL で attenuate して回避。
-// VOL=1.0 (default) で従来通り、0.0 で完全 mute、>1.0 で boost。
+// internal 0-1 (default 1.0 = unity)、UI 表示は他 knob と同様 ×10 (0.0-10.0)。
 let autoFilterVol = 1.0;
 const autoFilterVolGain = audioCtx.createGain();
 autoFilterVolGain.gain.setValueAtTime(1.0, 0);
 
 function setAutoFilterVol(v) {
-  autoFilterVol = Math.max(0, Math.min(2, v));
+  autoFilterVol = Math.max(0, Math.min(1, v));
   autoFilterVolGain.gain.setValueAtTime(autoFilterVol, audioCtx.currentTime);
 }
 
