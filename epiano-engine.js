@@ -119,6 +119,13 @@ var EP_AMP_PRESETS = {
     // Vintage: 経年 germanium、J-A saturation 強め、warm/mid 押し出し。
     voicingLabDefaults: { gePreampDrive: 3.0, gePreampGain: 1.2, suitcasePreFxTrim: 0.35, jaWetMix: 0.5 },
   }),
+  'Rhodes Suitcase Vintage Wah': Object.assign({}, _SUITCASE_COMMON, {
+    // 2026-04-27 urinami 追加: AMP Vintage に Wah variant。voicing は Vintage
+    // 流用、Wah 効果は host 側 (64PE autoFilter BP) で実装。urinami 後で
+    // 実機 voicing 確定 → 値固め直し予定。useCabinet (HPS gate) は
+    // _SUITCASE_COMMON 由来。
+    voicingLabDefaults: { gePreampDrive: 3.0, gePreampGain: 1.2, suitcasePreFxTrim: 0.35, jaWetMix: 0.5 },
+  }),
   // Backward compat: localStorage に 'Rhodes Suitcase' が残っている場合
   // audio-persistence.js の migration で 'Rhodes Suitcase Drive' に置換する。
   // 定義自体は削除 (エイリアスなし、migrate-and-forget)。

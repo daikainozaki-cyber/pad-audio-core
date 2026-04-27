@@ -41,6 +41,23 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 # 履歴
 
 
+## [2026-04-27] {pending-sha} — AMP Vintage Wah preset 追加 (urinami 指示、HPS gate)
+
+### Feature
+- **`'Rhodes Suitcase Vintage Wah'` preset 追加**:
+  - `EP_AMP_PRESETS` に新 entry (epiano-engine.js)、`_SUITCASE_COMMON` 流用で useCabinet:true (HPS gate)
+  - `ENGINES.epiano.presets` に新 entry (audio-engines.js)、label: 'Pad Sensei MK1 Suitcase Vintage Wah'
+  - voicingLabDefaults は Vintage 流用 (urinami 後で実機 voicing 確定 → 別 commit で焼き込み予定)
+  - Wah 効果自体は consumer 側 (64PE autoFilter BP) で実装、本 preset は preset key + voicing baseline のみ提供
+
+### Why
+- urinami 「Wah が掛かってるもの」 = AMP Vintage 派生。「私が作ってないのに入れたらいかん」 → voicing 確定は urinami が後で実施、preset key と HPS gate のみ先行追加
+
+### BREAKING なし
+- 既存 4 preset 不変、新 entry の追加のみ
+- consumer (keys / 64PE) 側 display rename map に 'Rhodes Suitcase Vintage Wah' → 'Pad Sensei MK1 AMP Vintage Wah' を追加
+
+
 ## [2026-04-27] {pending-sha} — Reverb TYPE / Bass / Treble 永続化 P2 fix (Codex 監査)
 
 ### Fix

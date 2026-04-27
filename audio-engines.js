@@ -24,6 +24,7 @@ const ENGINES = {
       'Rhodes Suitcase Clean':      { epiano: 'Rhodes Suitcase Clean',      label: 'Pad Sensei MK1 Suitcase Clean' },
       'Rhodes Suitcase Drive':      { epiano: 'Rhodes Suitcase Drive',      label: 'Pad Sensei MK1 Suitcase Drive' },
       'Rhodes Suitcase Vintage':    { epiano: 'Rhodes Suitcase Vintage',    label: 'Pad Sensei MK1 Suitcase Vintage' },
+      'Rhodes Suitcase Vintage Wah':{ epiano: 'Rhodes Suitcase Vintage Wah',label: 'Pad Sensei MK1 Suitcase Vintage Wah' },
     },
     defaultPreset: 'Rhodes DI',  // internal key unchanged (EP_AMP_PRESETS reference)
   },
