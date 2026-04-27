@@ -3,7 +3,8 @@
 // ========================================
 // Split from audio.js (Phase 0.1 / 2026-04-13). Auto Filter / Phaser /
 // Flanger / Lo-Cut / Hi-Cut live here and form the signal chain:
-//   masterGain → tremoloNode → autoFilter → autoFilter2
+//   masterGain → tremoloNode → autoFilter → autoFilter2 → autoFilterWetGain ─┐
+//                            → autoFilterDryGain ─────────────────────────────┴→ autoFilterMix
 //              → phaserFilters[0..3] → phaserWet → phaserMix
 //              → flangerDelay → flangerWet → flangerMix
 //              → (optional loCut) → (optional hiCut) → masterBus
@@ -25,11 +26,25 @@ let autoFilterSpeed = 0.15; // decay time in seconds
 let autoFilterType = 'lowpass';  // 'lowpass' or 'bandpass'
 let autoFilterPoles = 2;         // 2 or 4
 let autoFilterQ = 2;             // resonance: 1=fat, 10=narrow/vocal
-// 2026-04-27 urinami: 全体 effect 強度 (0=完全 bypass、1=depth 通り)。
-// triggerAutoFilter 内で effectiveDepth = autoFilterDepth * autoFilterLevel
-// として cutoff sweep 振り幅を縮小、LEVEL=0 で sweep なし (常時 hiFreq) =
-// effect 完全切り。urinami「Envelope Filter かかりすぎる」への対応。
-let autoFilterLevel = 1.0;
+
+// 2026-04-27 urinami: AUTO FILTER WET / DRY mix。WET=0 で完全 bypass
+// (Envelope Filter 無効と同等)、WET=1 で従来 series 通り。Q (resonance) を
+// 上げると peak で歪むので WET を下げて dry を混ぜる用。signal chain:
+//   tremoloNode → autoFilter → autoFilter2 → autoFilterWetGain ─┐
+//   tremoloNode ─────────────────────────→ autoFilterDryGain  ─┴→ autoFilterMix → phaser/dry mix
+let autoFilterWet = 1.0;
+const autoFilterWetGain = audioCtx.createGain();
+autoFilterWetGain.gain.setValueAtTime(1.0, 0);
+const autoFilterDryGain = audioCtx.createGain();
+autoFilterDryGain.gain.setValueAtTime(0.0, 0);
+const autoFilterMix = audioCtx.createGain();
+
+function setAutoFilterWet(v) {
+  autoFilterWet = Math.max(0, Math.min(1, v));
+  const now = audioCtx.currentTime;
+  autoFilterWetGain.gain.setValueAtTime(autoFilterWet, now);
+  autoFilterDryGain.gain.setValueAtTime(1 - autoFilterWet, now);
+}
 
 function triggerAutoFilter() {
   if (!autoFilterEnabled) return;
@@ -38,17 +53,15 @@ function triggerAutoFilter() {
   // LP: Mu-Tron LP style — sweep 800-8kHz, Q=4 (resonant peak)
   // BP: Cry Baby / Mu-Tron BP — sweep 450-2500Hz, Q=5 (focused wah)
   //     Depth slider = center freq bias (low=bassy, high=bright)
-  // 2026-04-27 urinami: LEVEL slider で全体 effect 強度 scale。
-  var effectiveDepth = autoFilterDepth * autoFilterLevel;
   var hiFreq, loFreq;
   if (isBP) {
     // Cry Baby / Mu-Tron BP: 800-3500Hz sweep
-    hiFreq = 800 + effectiveDepth * 2700;
-    loFreq = 350 + effectiveDepth * 250;
+    hiFreq = 800 + autoFilterDepth * 2700;
+    loFreq = 350 + autoFilterDepth * 250;
   } else {
     // Mu-Tron LP: 800-8000Hz sweep
-    hiFreq = 800 + effectiveDepth * 7200;
-    loFreq = 200 + (1 - effectiveDepth) * 600;
+    hiFreq = 800 + autoFilterDepth * 7200;
+    loFreq = 200 + (1 - autoFilterDepth) * 600;
   }
   autoFilter.Q.setValueAtTime(autoFilterQ, now);
   autoFilter2.Q.setValueAtTime(autoFilterQ, now);
@@ -86,10 +99,14 @@ const phaserMix = audioCtx.createGain();
 masterGain.connect(tremoloNode);
 tremoloNode.connect(autoFilter);
 autoFilter.connect(autoFilter2);
-autoFilter2.connect(phaserFilters[0]);
+autoFilter2.connect(autoFilterWetGain);
+autoFilterWetGain.connect(autoFilterMix);
+tremoloNode.connect(autoFilterDryGain);
+autoFilterDryGain.connect(autoFilterMix);
+autoFilterMix.connect(phaserFilters[0]);
 phaserFilters[3].connect(phaserWet);
 phaserWet.connect(phaserMix);
-autoFilter2.connect(phaserMix);
+autoFilterMix.connect(phaserMix);
 
 // --- Flanger: modulated short delay ---
 const flangerDelay = audioCtx.createDelay(0.02);

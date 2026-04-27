@@ -41,21 +41,25 @@ consumer が何を smoke test するかは各 consumer の `CLAUDE.md` を参照
 # 履歴
 
 
-## [2026-04-27] {pending-sha} — autoFilterLevel 追加 (Envelope Filter 強度コントロール)
+## [2026-04-27] {pending-sha} — autoFilterWet 追加 (Envelope Filter wet/dry mix)
 
 ### Feature
-- **`autoFilterLevel` (0-1, default 1.0) 追加** in `audio-effects.js`:
-  - `triggerAutoFilter()` 内で `effectiveDepth = autoFilterDepth * autoFilterLevel`
-  - LEVEL=0 で sweep なし (常時 hiFreq) = effect 完全切り、LEVEL=1 で従来通り depth 通り
-  - urinami「Envelope Filter かかりすぎる」への対応 (画像 #17)
-- **`saveSoundSettings` / `loadSoundSettings` の slider id 配列に `'snd-af-level'` 追加** (永続化対応)
+- **`autoFilterWet` (0-1, default 1.0) + true wet/dry chain** in `audio-effects.js`:
+  - 新 chain: `tremoloNode → autoFilter → autoFilter2 → autoFilterWetGain ─┐`
+              `tremoloNode ─────────────────→ autoFilterDryGain ────────┴→ autoFilterMix → phaser/dry mix`
+  - WET=0 で完全 bypass (Envelope Filter 無効と同等の dry signal)、WET=1 で従来 series 通り
+  - 中間値で wet/dry crossfade (linear: dry = 1 - wet)
+  - urinami「Envelope Filter かかりすぎる、レゾナンスで歪む」への対応 (画像 #17)
+- **`setAutoFilterWet(v)`** function 追加 (consumer は両 gain を直接触らずこの setter 経由)
+- **`saveSoundSettings` / `loadSoundSettings` の slider id 配列に `'snd-af-wet'` 追加** + 旧 `'snd-af-level'` からの migration
 
 ### Why
-- urinami 観察: AMP Vintage Envelope Filter の AUTO FILTER ON 時に effect 強度が強すぎる
-- DEPTH を下げる代替もあるが、DEPTH は filter sweep 範囲 (色味)、LEVEL は全体強度 (wet/dry mix 相当) で意味が違う
+- urinami 観察: AMP Vintage Envelope Filter の AUTO FILTER ON 時に effect 強度が強すぎる、Q resonance で歪む
+- 単純な output gain では dry signal も attenuate されるので、parallel wet/dry mix が正解 (urinami「これパラレル？」「level じゃなくて wet では」)
 
 ### BREAKING なし
-- consumer 側 (keys / 64PE) で `snd-af-level` slider を index.html に新規追加すれば反映、未追加でも default 1.0 で従来動作
+- consumer 側 (keys / 64PE) で `snd-af-wet` slider を index.html に新規追加すれば反映、未追加でも default 1.0 (full wet) で従来動作
+- 旧 `snd-af-level` localStorage キーは load 時に `snd-af-wet` へ自動 migration
 
 
 ## [2026-04-27] {pending-sha} — 'Rhodes Suitcase Vintage Wah' → 'Vintage Envelope Filter' rename

@@ -136,7 +136,7 @@ function saveSoundSettings() {
     const s = {};
     s.engine = AudioState.engineKey;
     s.preset = AudioState.presetKey;
-    ['snd-volume','snd-tremolo','snd-tremolo-spd','snd-phaser','snd-flanger','snd-locut','snd-hicut','snd-af-depth','snd-af-speed','snd-af-q','snd-af-level','snd-drive'].forEach(id => {
+    ['snd-volume','snd-tremolo','snd-tremolo-spd','snd-phaser','snd-flanger','snd-locut','snd-hicut','snd-af-depth','snd-af-speed','snd-af-q','snd-af-wet','snd-drive'].forEach(id => {
       const el = document.getElementById(id);
       if (el) s[id] = el.value;
     });
@@ -171,6 +171,11 @@ function loadSoundSettings() {
     // 2026-04-27 urinami: Wah → Envelope Filter rename (Wah が正確な呼称じゃ
     // ないため変更)。localStorage に旧 'Wah' が残っていれば置換。
     if (s.preset === 'Rhodes Suitcase Vintage Wah') s.preset = 'Rhodes Suitcase Vintage Envelope Filter';
+    // 2026-04-27 urinami: snd-af-level → snd-af-wet rename (true wet/dry mix
+    // に変更したため LEVEL ではなく WET が正確)。旧キーが残っていれば移送。
+    if (s['snd-af-level'] !== undefined && s['snd-af-wet'] === undefined) {
+      s['snd-af-wet'] = s['snd-af-level'];
+    }
     if (s.engine && ENGINES[s.engine]) {
       var wasMuted = _soundMuted;
       setEngine(s.engine);
@@ -182,7 +187,7 @@ function loadSoundSettings() {
       _soundMuted = s.soundMuted !== undefined ? s.soundMuted : false;
       _updateMuteBtn();
     }
-    ['snd-volume','snd-tremolo','snd-tremolo-spd','snd-phaser','snd-flanger','snd-locut','snd-hicut','snd-af-depth','snd-af-speed','snd-af-q','snd-af-level','snd-drive'].forEach(id => {
+    ['snd-volume','snd-tremolo','snd-tremolo-spd','snd-phaser','snd-flanger','snd-locut','snd-hicut','snd-af-depth','snd-af-speed','snd-af-q','snd-af-wet','snd-drive'].forEach(id => {
       if (s[id] === undefined) return;
       const el = document.getElementById(id);
       if (!el) return;
