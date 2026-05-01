@@ -19,7 +19,7 @@
 // Architecture: PAD DAW Phase 1-4 SoA pattern (GC zero, no new/filter/forEach in process())
 
 // --- Constants ---
-var MAX_VOICES = 16;
+var MAX_VOICES = 32;
 var LUT_SIZE = 1024;
 var LUT_MASK = LUT_SIZE - 1;
 var TWO_PI = 2 * Math.PI;
